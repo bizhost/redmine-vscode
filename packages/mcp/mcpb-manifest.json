@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "redmine",
   "display_name": "Redmine",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Redmine 일감 — 목록/상세/상태변경/댓글/내보내기",
   "author": {
     "name": "bizhost"

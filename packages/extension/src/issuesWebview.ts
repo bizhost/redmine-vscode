@@ -66,6 +66,11 @@ export interface ViewData {
 export abstract class IssuesViewBase implements vscode.WebviewViewProvider {
   protected view: vscode.WebviewView | undefined;
   private filter = "";
+  private selection: number[] = []; // webview에서 선택된 일감 id들
+
+  getSelection(): number[] {
+    return this.selection;
+  }
 
   constructor(
     protected readonly getClient: () => Promise<RedmineClient | undefined>,
@@ -88,6 +93,8 @@ export abstract class IssuesViewBase implements vscode.WebviewViewProvider {
           void vscode.commands.executeCommand("redmine.openIssue", Number(msg.id));
         } else if (msg.command === "setup") {
           void vscode.commands.executeCommand("redmine.setApiKey");
+        } else if (msg.command === "select") {
+          this.selection = (msg.ids as number[]) ?? [];
         } else if (msg.command === "query") {
           this.filter = String(msg.query ?? "").trim();
           this.reset();
@@ -159,8 +166,10 @@ function buildHtml(placeholder: string): string {
   summary:hover { background: var(--vscode-list-hoverBackground); }
   .badge { color: var(--vscode-descriptionForeground); font-weight: 400; font-size: .9em; margin-left: .3em; }
   .item { display: flex; gap: .5em; padding: .22em .5em .22em 1.6em; cursor: pointer;
-    white-space: nowrap; overflow: hidden; }
+    white-space: nowrap; overflow: hidden; user-select: none; }
   .item:hover { background: var(--vscode-list-hoverBackground); }
+  .item.sel { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+  .item.sel .st { color: inherit; opacity: .8; }
   .item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
   .item .st { color: var(--vscode-descriptionForeground); font-size: .9em; flex-shrink: 0; }
   .more, .dim, .setup { color: var(--vscode-descriptionForeground); padding: .3em .5em .3em 1.6em; cursor: pointer; }
@@ -203,16 +212,49 @@ function buildHtml(placeholder: string): string {
       }
     }
 
+    const selected = new Set();
+    function postSelection() {
+      vscode.postMessage({ command: "select", ids: [...selected] });
+    }
+    function applySelClass() {
+      document.querySelectorAll(".item").forEach((el) => {
+        el.classList.toggle("sel", selected.has(Number(el.dataset.id)));
+      });
+    }
     function itemEl(row) {
       const div = document.createElement("div");
-      div.className = "item";
+      div.className = "item" + (selected.has(row.id) ? " sel" : "");
+      div.dataset.id = row.id;
       div.title = row.label;
+      // 우클릭 → VS Code 컨텍스트 메뉴 (다운로드)
+      div.setAttribute("data-vscode-context", JSON.stringify({
+        webviewSection: "issue", issueId: row.id, preventDefaultContextMenuItems: true,
+      }));
       const label = document.createElement("span");
       label.className = "label"; label.textContent = row.label;
       const st = document.createElement("span");
       st.className = "st"; st.textContent = row.status;
       div.append(label, st);
-      div.onclick = () => vscode.postMessage({ command: "open", id: row.id });
+      div.onclick = (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          selected.has(row.id) ? selected.delete(row.id) : selected.add(row.id);
+        } else {
+          selected.clear();
+          selected.add(row.id);
+        }
+        applySelClass();
+        postSelection();
+      };
+      div.ondblclick = () => vscode.postMessage({ command: "open", id: row.id });
+      div.oncontextmenu = () => {
+        // 선택 밖 우클릭 → 해당 항목 단일 선택
+        if (!selected.has(row.id)) {
+          selected.clear();
+          selected.add(row.id);
+          applySelClass();
+          postSelection();
+        }
+      };
       return div;
     }
 
@@ -280,6 +322,8 @@ function buildHtml(placeholder: string): string {
         return;
       }
       if (msg.command !== "data") return;
+      selected.clear();
+      postSelection();
       list.textContent = "";
       if (msg.needSetup) {
         const d = document.createElement("div");

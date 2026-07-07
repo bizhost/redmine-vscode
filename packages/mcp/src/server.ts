@@ -1,7 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { mkdir, writeFile } from "node:fs/promises";
+import * as path from "node:path";
 import { z } from "zod";
-import { RedmineClient, type Issue } from "@redmine-tools/core";
+import {
+  RedmineClient,
+  buildIssueMarkdown,
+  exportFileNames,
+  type Issue,
+} from "@redmine-tools/core";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -143,6 +150,42 @@ server.registerTool(
     try {
       await client.updateIssue(id, { notes });
       return ok({ commented: id });
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+server.registerTool(
+  "export_issues",
+  {
+    description:
+      "일감을 디렉토리로 내보내기 — <dir>/<일감번호>/issue.md (내용/댓글) + attachments/ (첨부파일 다운로드)",
+    inputSchema: {
+      ids: z.array(z.number().int()).min(1).describe("일감 번호 목록"),
+      dir: z.string().describe("저장할 디렉토리 절대경로"),
+    },
+  },
+  async ({ ids, dir }) => {
+    try {
+      const exported: string[] = [];
+      for (const id of ids) {
+        const issue = await client.getIssue(id);
+        const names = exportFileNames(issue);
+        const issueDir = path.join(dir, String(id));
+        await mkdir(issueDir, { recursive: true });
+        await writeFile(path.join(issueDir, "issue.md"), buildIssueMarkdown(issue, names), "utf8");
+        if (issue.attachments?.length) {
+          const attDir = path.join(issueDir, "attachments");
+          await mkdir(attDir, { recursive: true });
+          for (const a of issue.attachments) {
+            const data = await client.downloadAttachment(a.content_url);
+            await writeFile(path.join(attDir, names.get(a.id) ?? a.filename), Buffer.from(data));
+          }
+        }
+        exported.push(issueDir);
+      }
+      return ok({ exported });
     } catch (err) {
       return fail(err);
     }

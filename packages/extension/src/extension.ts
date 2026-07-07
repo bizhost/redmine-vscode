@@ -2,7 +2,12 @@ import * as vscode from "vscode";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as path from "node:path";
-import { RedmineClient, type UpdateIssueChanges } from "@redmine-tools/core";
+import {
+  RedmineClient,
+  buildIssueMarkdown,
+  exportFileNames,
+  type UpdateIssueChanges,
+} from "@redmine-tools/core";
 
 const execFileAsync = promisify(execFile);
 
@@ -206,6 +211,68 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(`새 일감 실패: ${err instanceof Error ? err.message : err}`);
       }
     }),
+
+    vscode.commands.registerCommand(
+      "redmine.downloadIssues",
+      async (ctx?: { issueId?: number }) => {
+        try {
+          const clicked = Number(ctx?.issueId);
+          if (!Number.isInteger(clicked)) return;
+          // 클릭 항목이 포함된 pane의 다중 선택 사용, 아니면 단일
+          const ids = myIssues.getSelection().includes(clicked)
+            ? myIssues.getSelection()
+            : projects.getSelection().includes(clicked)
+              ? projects.getSelection()
+              : [clicked];
+
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFolders: true,
+            canSelectFiles: false,
+            canSelectMany: false,
+            openLabel: "여기에 다운로드",
+          });
+          if (!picked) return;
+          const base = picked[0];
+          const client = await requireClient();
+
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: `Redmine 일감 다운로드 (${ids.length}건)`,
+            },
+            async (progress) => {
+              for (const id of ids) {
+                progress.report({ message: `#${id}` });
+                const issue = await client.getIssue(id);
+                const names = exportFileNames(issue);
+                const dir = vscode.Uri.joinPath(base, String(id));
+                await vscode.workspace.fs.createDirectory(dir);
+                await vscode.workspace.fs.writeFile(
+                  vscode.Uri.joinPath(dir, "issue.md"),
+                  Buffer.from(buildIssueMarkdown(issue, names), "utf8"),
+                );
+                if (issue.attachments?.length) {
+                  const attDir = vscode.Uri.joinPath(dir, "attachments");
+                  await vscode.workspace.fs.createDirectory(attDir);
+                  for (const a of issue.attachments) {
+                    const data = await client.downloadAttachment(a.content_url);
+                    await vscode.workspace.fs.writeFile(
+                      vscode.Uri.joinPath(attDir, names.get(a.id) ?? a.filename),
+                      new Uint8Array(data),
+                    );
+                  }
+                }
+              }
+            },
+          );
+          vscode.window.showInformationMessage(
+            `다운로드 완료: ${ids.map((i) => `#${i}`).join(", ")} → ${base.fsPath}`,
+          );
+        } catch (err) {
+          vscode.window.showErrorMessage(`다운로드 실패: ${err instanceof Error ? err.message : err}`);
+        }
+      },
+    ),
 
     vscode.commands.registerCommand("redmine.issuesForFile", async (uri?: vscode.Uri) => {
       try {

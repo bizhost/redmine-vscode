@@ -84,16 +84,17 @@ Claude Code 등 AI 에이전트에 아래를 그대로 붙여넣으면 설치를
 1. VS Code 확장 설치:
    - https://github.com/bizhost/redmine-vscode/releases 에서 최신 .vsix 다운로드
    - code --install-extension <파일>.vsix 로 설치
-2. MCP 등록 전에 나에게 물어봐:
-   - Redmine 서버 URL
-   - 내 Redmine API key (Redmine → 내 계정 → API 접근키. 채팅에 붙여넣지 말고
-     claude mcp add 명령을 알려주면 내가 직접 터미널에서 실행할게)
-3. 안내할 claude mcp add 명령 형식 (Node 20+ 필요):
+2. 나에게 Redmine 서버 URL을 물어보고, VS Code 사용자 settings.json에
+   "redmine.url" 값으로 직접 넣어줘.
+3. MCP 등록: 내 Redmine API key가 필요함 (Redmine → 내 계정 → API 접근키).
+   key는 채팅에 붙여넣지 않을 거니까, 아래 형식으로 명령을 알려주면
+   내가 직접 터미널에서 실행할게 (Node 20+ 필요):
    claude mcp add redmine -e REDMINE_URL=<url> -e REDMINE_API_KEY=<key> \
      -- npx -y @bizhost/redmine-mcp
-4. 끝나면 VS Code 설정 방법 안내:
-   - settings에서 redmine.url 입력
-   - 명령 팔레트에서 "Redmine: Set API Key" 실행
+4. 마지막으로 안내해줘:
+   - VS Code 명령 팔레트에서 "Redmine: Set API Key" 실행해서 key 입력
+     (확장은 SecretStorage를 써서 이건 직접 입력해야 함)
+   - VS Code 리로드 후 활동바 Redmine 아이콘 확인
 ```
 
 ## 개발

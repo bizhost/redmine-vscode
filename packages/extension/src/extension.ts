@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   RedmineClient,
@@ -225,14 +226,27 @@ export function activate(context: vscode.ExtensionContext): void {
               ? projects.getSelection()
               : [clicked];
 
-          const picked = await vscode.window.showOpenDialog({
-            canSelectFolders: true,
-            canSelectFiles: false,
-            canSelectMany: false,
-            openLabel: "여기에 다운로드",
-          });
-          if (!picked) return;
-          const base = picked[0];
+          // 설정된 기본 경로 있으면 바로 사용, 없으면 매번 선택
+          const configured = vscode.workspace
+            .getConfiguration("redmine")
+            .get<string>("downloadPath", "")
+            .trim();
+          let base: vscode.Uri;
+          if (configured) {
+            base = vscode.Uri.file(
+              path.resolve(configured.replace(/^~(?=$|\/)/, os.homedir())),
+            );
+            await vscode.workspace.fs.createDirectory(base); // 없으면 생성
+          } else {
+            const picked = await vscode.window.showOpenDialog({
+              canSelectFolders: true,
+              canSelectFiles: false,
+              canSelectMany: false,
+              openLabel: "여기에 다운로드",
+            });
+            if (!picked) return;
+            base = picked[0];
+          }
           const client = await requireClient();
 
           await vscode.window.withProgress(

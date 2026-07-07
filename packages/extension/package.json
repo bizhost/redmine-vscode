@@ -2,7 +2,7 @@
   "name": "redmine-vscode",
   "displayName": "Redmine Issues",
   "description": "Redmine 일감 목록/상세/상태변경/댓글",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
   "publisher": "konat",
   "engines": {
@@ -140,6 +140,11 @@
           "type": "string",
           "default": "",
           "description": "프로젝트 identifier (선택, '내 일감' 범위 한정용)"
+        },
+        "redmine.downloadPath": {
+          "type": "string",
+          "default": "",
+          "description": "일감 다운로드 기본 경로 (절대경로, ~ 가능). 비우면 매번 위치 선택"
         }
       }
     }

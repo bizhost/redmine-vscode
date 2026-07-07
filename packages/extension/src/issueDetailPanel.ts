@@ -38,6 +38,8 @@ export interface IssueDetailContext {
   trackers: NamedRef[];
   assignees: NamedRef[];
   categories: NamedRef[];
+  /** attachment id → data URI (이미지 미리보기) */
+  previews: Record<number, string>;
   onUpdate: (changes: UpdateIssueChanges) => Promise<void>;
 }
 
@@ -117,10 +119,15 @@ export class IssueDetailPanel {
       .join("");
 
     const attachments = (issue.attachments ?? [])
-      .map(
-        (a) =>
-          `<li><a href="${esc(a.content_url)}">${esc(a.filename)}</a> <span class="dim">(${fmtSize(a.filesize)})</span></li>`,
-      )
+      .map((a) => {
+        const preview = this.ctx.previews[a.id];
+        const label = `${esc(a.filename)} <span class="dim">(${fmtSize(a.filesize)})</span>`;
+        if (preview) {
+          // 클릭 → 브라우저에서 원본
+          return `<li class="att"><a href="${esc(a.content_url)}" title="브라우저로 열기"><img src="${preview}" alt="${esc(a.filename)}"></a><div>${label}</div></li>`;
+        }
+        return `<li><a href="${esc(a.content_url)}">${esc(a.filename)}</a> <span class="dim">(${fmtSize(a.filesize)})</span></li>`;
+      })
       .join("");
 
     const comments = (issue.journals ?? [])
@@ -160,6 +167,8 @@ export class IssueDetailPanel {
   .row { display: flex; gap: 1em; align-items: center; margin-top: .5em; }
   h2 { font-size: 1.05em; margin-top: 1.5em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .3em; }
   ul { padding-left: 1.2em; }
+  li.att { list-style: none; margin: .6em 0; }
+  li.att img { max-width: 100%; max-height: 260px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); cursor: pointer; display: block; }
 </style>
 </head>
 <body>

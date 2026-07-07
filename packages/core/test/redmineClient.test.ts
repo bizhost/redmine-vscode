@@ -249,6 +249,28 @@ test("base URL 뒤 슬래시/서브패스 유지", async () => {
   assert.ok(calls[0].url.startsWith("https://host.example.com/redmine/issue_statuses.json"));
 });
 
+test("downloadAttachment: API key 헤더로 바이너리 수신", async () => {
+  const bytes = new Uint8Array([137, 80, 78, 71]); // PNG magic
+  const calls: Call[] = [];
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    calls.push({ url: String(input), init });
+    return new Response(bytes, { status: 200 });
+  }) as typeof fetch;
+
+  const data = await makeClient().downloadAttachment("https://redmine.example.com/attachments/download/9/a.png");
+  assert.deepEqual(new Uint8Array(data), bytes);
+  const headers = calls[0].init?.headers as Record<string, string>;
+  assert.equal(headers["X-Redmine-API-Key"], "SECRET");
+});
+
+test("downloadAttachment: 실패 → RedmineApiError", async () => {
+  mockFetch(403);
+  await assert.rejects(
+    () => makeClient().downloadAttachment("https://redmine.example.com/attachments/download/9/a.png"),
+    (err: unknown) => err instanceof RedmineApiError && err.status === 403,
+  );
+});
+
 test("listStatuses: 상태 목록 파싱", async () => {
   mockFetch(200, { issue_statuses: [{ id: 1, name: "New" }, { id: 5, name: "Closed", is_closed: true }] });
   const statuses = await makeClient().listStatuses();

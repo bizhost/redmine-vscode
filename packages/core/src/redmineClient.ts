@@ -121,6 +121,17 @@ export class RedmineClient {
     return data.results.map(({ id, title }) => ({ id, title }));
   }
 
+  /** 첨부 다운로드 — content_url 절대경로 사용 */
+  async downloadAttachment(contentUrl: string): Promise<ArrayBuffer> {
+    const res = await fetch(contentUrl, {
+      headers: { "X-Redmine-API-Key": this.opts.apiKey },
+    });
+    if (!res.ok) {
+      throw new RedmineApiError(res.status, `첨부 다운로드 실패 ${res.status}`);
+    }
+    return res.arrayBuffer();
+  }
+
   async updateIssue(id: number, changes: UpdateIssueChanges): Promise<void> {
     const issue: Record<string, unknown> = {};
     if (changes.subject !== undefined) issue.subject = changes.subject;

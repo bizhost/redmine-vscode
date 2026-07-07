@@ -13,6 +13,12 @@ export interface ListIssuesOptions {
   limit?: number;
   /** 숫자 프로젝트 id — 설정된 identifier보다 우선 */
   projectId?: number;
+  offset?: number;
+}
+
+export interface IssuePage {
+  issues: Issue[];
+  totalCount: number;
 }
 
 export interface UpdateIssueChanges {
@@ -48,17 +54,20 @@ export class RedmineClient {
     this.baseUrl = opts.url.replace(/\/+$/, ""); // 서브패스 보존 위해 문자열 결합
   }
 
-  async listIssues(options: ListIssuesOptions = {}): Promise<Issue[]> {
+  async listIssues(options: ListIssuesOptions = {}): Promise<IssuePage> {
     const params = new URLSearchParams({
       status_id: options.statusId ?? "open",
       sort: "updated_on:desc",
       limit: String(options.limit ?? 50),
+      offset: String(options.offset ?? 0),
     });
     const project = options.projectId ?? this.opts.projectIdentifier;
     if (project) params.set("project_id", String(project));
     if (options.assignedToMe ?? true) params.set("assigned_to_id", "me");
-    const data = await this.request<{ issues: Issue[] }>(`/issues.json?${params}`);
-    return data.issues;
+    const data = await this.request<{ issues: Issue[]; total_count?: number }>(
+      `/issues.json?${params}`,
+    );
+    return { issues: data.issues, totalCount: data.total_count ?? data.issues.length };
   }
 
   async getIssue(id: number): Promise<Issue> {

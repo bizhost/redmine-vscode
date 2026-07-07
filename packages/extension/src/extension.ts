@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { RedmineClient, type UpdateIssueChanges } from "@redmine-tools/core";
-import { IssuesProvider } from "./issuesProvider";
+import { MyIssuesProvider } from "./myIssuesProvider";
+import { ProjectsProvider } from "./projectsProvider";
 import { IssueDetailPanel } from "./issueDetailPanel";
 
 const SECRET_KEY = "redmine.apiKey";
@@ -15,14 +16,19 @@ export function activate(context: vscode.ExtensionContext): void {
     return new RedmineClient({ url, apiKey, projectIdentifier: projectIdentifier || undefined });
   };
 
-  const provider = new IssuesProvider(getClient);
-
   const requireClient = async (): Promise<RedmineClient> => {
     const client = await getClient();
     if (!client) {
       throw new Error("Redmine 설정 필요: settings에서 url 설정 후 'Redmine: Set API Key' 실행");
     }
     return client;
+  };
+
+  const myIssues = new MyIssuesProvider(getClient);
+  const projects = new ProjectsProvider(getClient);
+  const refreshAll = (): void => {
+    myIssues.refresh();
+    projects.refresh();
   };
 
   const openIssue = async (id: number): Promise<void> => {
@@ -46,15 +52,61 @@ export function activate(context: vscode.ExtensionContext): void {
       onUpdate: async (changes: UpdateIssueChanges) => {
         await client.updateIssue(id, changes);
         IssueDetailPanel.update(await client.getIssue(id));
-        provider.refresh();
+        refreshAll();
       },
     });
   };
 
-  context.subscriptions.push(
-    vscode.window.registerTreeDataProvider("redmineIssues", provider),
+  const searchLive = async (): Promise<void> => {
+    const client = await requireClient();
+    const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { issueId: number }>();
+    qp.placeholder = "일감 검색 (제목/내용/댓글) — 입력하면 바로 검색";
+    qp.matchOnDescription = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let seq = 0;
+    qp.onDidChangeValue((value) => {
+      if (timer) clearTimeout(timer);
+      const query = value.trim();
+      if (!query) {
+        qp.items = [];
+        return;
+      }
+      timer = setTimeout(async () => {
+        const mySeq = ++seq;
+        qp.busy = true;
+        try {
+          const results = await client.searchIssues(query);
+          if (mySeq !== seq) return; // 오래된 응답 무시
+          qp.items = results.map((r) => ({ label: r.title, issueId: r.id, alwaysShow: true }));
+        } catch {
+          if (mySeq === seq) qp.items = [];
+        } finally {
+          if (mySeq === seq) qp.busy = false;
+        }
+      }, 300);
+    });
+    qp.onDidAccept(() => {
+      const picked = qp.selectedItems[0];
+      if (picked) {
+        qp.hide();
+        void openIssue(picked.issueId).catch((err) =>
+          vscode.window.showErrorMessage(`일감 열기 실패: ${err instanceof Error ? err.message : err}`),
+        );
+      }
+    });
+    qp.onDidHide(() => qp.dispose());
+    qp.show();
+  };
 
-    vscode.commands.registerCommand("redmine.refresh", () => provider.refresh()),
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("redmineMyIssues", myIssues),
+    vscode.window.registerTreeDataProvider("redmineProjects", projects),
+
+    vscode.commands.registerCommand("redmine.refresh", refreshAll),
+    vscode.commands.registerCommand("redmine.loadMoreMy", () => myIssues.loadMore()),
+    vscode.commands.registerCommand("redmine.loadMoreProject", (projectId: number) =>
+      projects.loadMore(projectId),
+    ),
 
     vscode.commands.registerCommand("redmine.setApiKey", async () => {
       const value = await vscode.window.showInputBox({
@@ -65,7 +117,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (value) {
         await context.secrets.store(SECRET_KEY, value.trim());
         vscode.window.showInformationMessage("Redmine API Key 저장됨");
-        provider.refresh();
+        refreshAll();
       }
     }),
 
@@ -75,28 +127,11 @@ export function activate(context: vscode.ExtensionContext): void {
       ),
     ),
 
-    vscode.commands.registerCommand("redmine.search", async () => {
-      try {
-        const client = await requireClient();
-        const query = await vscode.window.showInputBox({
-          prompt: "일감 검색 (제목/내용/댓글)",
-          ignoreFocusOut: true,
-        });
-        if (!query) return;
-        const results = await client.searchIssues(query);
-        if (results.length === 0) {
-          vscode.window.showInformationMessage(`'${query}' 검색 결과 없음`);
-          return;
-        }
-        const picked = await vscode.window.showQuickPick(
-          results.map((r) => ({ label: r.title, id: r.id })),
-          { placeHolder: `검색 결과 ${results.length}건` },
-        );
-        if (picked) await openIssue(picked.id);
-      } catch (err) {
-        vscode.window.showErrorMessage(`검색 실패: ${err instanceof Error ? err.message : err}`);
-      }
-    }),
+    vscode.commands.registerCommand("redmine.search", () =>
+      searchLive().catch((err) =>
+        vscode.window.showErrorMessage(`검색 실패: ${err instanceof Error ? err.message : err}`),
+      ),
+    ),
   );
 }
 

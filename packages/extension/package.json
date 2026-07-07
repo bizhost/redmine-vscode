@@ -2,7 +2,7 @@
   "name": "redmine-vscode",
   "displayName": "Redmine Issues",
   "description": "Redmine 일감 목록/상세/상태변경/댓글",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "publisher": "konat",
   "engines": {
@@ -26,8 +26,12 @@
     "views": {
       "redmine": [
         {
-          "id": "redmineIssues",
-          "name": "일감"
+          "id": "redmineMyIssues",
+          "name": "내 일감"
+        },
+        {
+          "id": "redmineProjects",
+          "name": "프로젝트"
         }
       ]
     },
@@ -49,19 +53,41 @@
       {
         "command": "redmine.openIssue",
         "title": "Redmine: 일감 열기"
+      },
+      {
+        "command": "redmine.loadMoreMy",
+        "title": "Redmine: 더 보기 (내 일감)"
+      },
+      {
+        "command": "redmine.loadMoreProject",
+        "title": "Redmine: 더 보기 (프로젝트)"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "redmine.refresh",
-          "when": "view == redmineIssues",
+          "when": "view == redmineMyIssues || view == redmineProjects",
           "group": "navigation"
         },
         {
           "command": "redmine.search",
-          "when": "view == redmineIssues",
+          "when": "view == redmineMyIssues || view == redmineProjects",
           "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "redmine.openIssue",
+          "when": "false"
+        },
+        {
+          "command": "redmine.loadMoreMy",
+          "when": "false"
+        },
+        {
+          "command": "redmine.loadMoreProject",
+          "when": "false"
         }
       ]
     },
@@ -76,12 +102,7 @@
         "redmine.projectIdentifier": {
           "type": "string",
           "default": "",
-          "description": "프로젝트 identifier (선택, 생략 시 전체 프로젝트)"
-        },
-        "redmine.assignedToMe": {
-          "type": "boolean",
-          "default": true,
-          "description": "내게 할당된 일감만 표시"
+          "description": "프로젝트 identifier (선택, '내 일감' 범위 한정용)"
         }
       }
     }

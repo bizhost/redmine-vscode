@@ -49,12 +49,13 @@ server.registerTool(
       assignedToMe: z.boolean().optional().describe("false면 프로젝트 전체 이슈 (기본 true)"),
       statusId: z.string().optional().describe("open | closed | * | 상태 숫자 id (기본 open)"),
       limit: z.number().int().min(1).max(100).optional().describe("최대 개수 (기본 50)"),
+      offset: z.number().int().min(0).optional().describe("페이징 offset (기본 0)"),
     },
   },
   async (args) => {
     try {
-      const issues = await client.listIssues(args);
-      return ok(issues.map(issueSummary));
+      const page = await client.listIssues(args);
+      return ok({ total: page.totalCount, issues: page.issues.map(issueSummary) });
     } catch (err) {
       return fail(err);
     }

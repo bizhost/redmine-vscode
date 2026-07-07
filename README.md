@@ -46,7 +46,13 @@ claude mcp add redmine \
   -- npx -y @bizhost/redmine-mcp
 ```
 
-**Claude Desktop** — `claude_desktop_config.json` (설정 → 개발자 → 구성 편집) 후 앱 완전 재시작:
+**Claude Desktop — 확장 번들 (권장):**
+
+1. [Releases](https://github.com/bizhost/redmine-vscode/releases)에서 `redmine.mcpb` 다운로드
+2. 더블클릭 (또는 Claude Desktop → 설정 → 확장 프로그램 → 드래그)
+3. 설정 화면 폼에 Redmine URL / API Key 입력 — JSON 편집 불필요
+
+**Claude Desktop — 수동 설정:** `claude_desktop_config.json` (설정 → 개발자 → 구성 편집) 후 앱 완전 재시작:
 
 ```json
 {

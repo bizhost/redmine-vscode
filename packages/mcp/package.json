@@ -20,6 +20,7 @@
   },
   "scripts": {
     "build": "node esbuild.mjs",
+    "build:mcpb": "npm run build && node build-mcpb.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run typecheck && npm run build"
   },

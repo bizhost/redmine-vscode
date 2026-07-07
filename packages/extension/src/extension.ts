@@ -27,11 +27,10 @@ async function issueIdsForFile(fileUri: vscode.Uri): Promise<number[]> {
   }
   return ids;
 }
-import { MyIssuesProvider } from "./myIssuesProvider";
-import { ProjectsProvider } from "./projectsProvider";
+import { MyIssuesView } from "./myIssuesProvider";
+import { ProjectsView } from "./projectsProvider";
 import { IssueDetailPanel } from "./issueDetailPanel";
 import { NewIssuePanel } from "./newIssuePanel";
-import { SearchInputView } from "./searchInputView";
 
 const SECRET_KEY = "redmine.apiKey";
 
@@ -85,8 +84,8 @@ export function activate(context: vscode.ExtensionContext): void {
     return client;
   };
 
-  const myIssues = new MyIssuesProvider(getClient);
-  const projects = new ProjectsProvider(getClient);
+  const myIssues = new MyIssuesView(getClient);
+  const projects = new ProjectsView(getClient);
   const refreshAll = (): void => {
     myIssues.refresh();
     projects.refresh();
@@ -144,46 +143,13 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   };
 
-  // pane 내부 검색 — InputBox, 비우면 해제
-  const promptFilter = async (
-    provider: MyIssuesProvider | ProjectsProvider,
-    placeHolder: string,
-  ): Promise<void> => {
-    const value = await vscode.window.showInputBox({
-      prompt: "제목 검색 또는 #일감번호 (비우면 검색 해제)",
-      placeHolder,
-      value: provider.getFilter() ?? "",
-      ignoreFocusOut: true,
-    });
-    if (value === undefined) return; // ESC → 유지
-    provider.setFilter(value);
-  };
-
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider("redmineMyIssues", myIssues),
-    vscode.window.registerTreeDataProvider("redmineProjects", projects),
-    vscode.window.registerWebviewViewProvider(
-      SearchInputView.viewId,
-      new SearchInputView((query) => {
-        myIssues.setFilter(query); // 내 담당 범위
-        projects.setFilter(query); // 전체 범위
-      }),
-    ),
+    vscode.window.registerWebviewViewProvider("redmineMyIssues", myIssues),
+    vscode.window.registerWebviewViewProvider("redmineProjects", projects),
 
     vscode.commands.registerCommand("redmine.refresh", refreshAll),
-    vscode.commands.registerCommand("redmine.loadMoreMy", () => myIssues.loadMore()),
-    vscode.commands.registerCommand("redmine.loadMoreProject", (projectId: number) =>
-      projects.loadMore(projectId),
-    ),
-    vscode.commands.registerCommand("redmine.loadMoreProjectsSearch", () =>
-      projects.loadMoreSearch(),
-    ),
-    vscode.commands.registerCommand("redmine.searchMyIssues", () =>
-      promptFilter(myIssues, "내 일감에서 검색"),
-    ),
-    vscode.commands.registerCommand("redmine.searchProjects", () =>
-      promptFilter(projects, "전체 프로젝트에서 검색"),
-    ),
+    vscode.commands.registerCommand("redmine.searchMyIssues", () => myIssues.toggleSearch()),
+    vscode.commands.registerCommand("redmine.searchProjects", () => projects.toggleSearch()),
 
     vscode.commands.registerCommand("redmine.setApiKey", async () => {
       const value = await vscode.window.showInputBox({

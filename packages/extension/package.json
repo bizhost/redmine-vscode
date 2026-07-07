@@ -2,7 +2,7 @@
   "name": "redmine-vscode",
   "displayName": "Redmine Issues",
   "description": "Redmine 일감 목록/상세/상태변경/댓글",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "private": true,
   "publisher": "konat",
   "engines": {
@@ -26,18 +26,14 @@
     "views": {
       "redmine": [
         {
-          "id": "redmineSearch",
-          "name": "검색",
-          "type": "webview",
-          "initialSize": 1
-        },
-        {
           "id": "redmineMyIssues",
-          "name": "내 일감"
+          "name": "내 일감",
+          "type": "webview"
         },
         {
           "id": "redmineProjects",
-          "name": "프로젝트"
+          "name": "프로젝트",
+          "type": "webview"
         }
       ]
     },
@@ -69,18 +65,6 @@
       {
         "command": "redmine.openIssue",
         "title": "Redmine: 일감 열기"
-      },
-      {
-        "command": "redmine.loadMoreMy",
-        "title": "Redmine: 더 보기 (내 일감)"
-      },
-      {
-        "command": "redmine.loadMoreProject",
-        "title": "Redmine: 더 보기 (프로젝트)"
-      },
-      {
-        "command": "redmine.loadMoreProjectsSearch",
-        "title": "Redmine: 더 보기 (프로젝트 검색)"
       },
       {
         "command": "redmine.issuesForFile",
@@ -126,18 +110,6 @@
       "commandPalette": [
         {
           "command": "redmine.openIssue",
-          "when": "false"
-        },
-        {
-          "command": "redmine.loadMoreMy",
-          "when": "false"
-        },
-        {
-          "command": "redmine.loadMoreProject",
-          "when": "false"
-        },
-        {
-          "command": "redmine.loadMoreProjectsSearch",
           "when": "false"
         }
       ]

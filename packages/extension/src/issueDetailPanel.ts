@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { Issue, IssueStatus, UpdateIssueChanges } from "@redmine-tools/core";
+import type { Issue, NamedRef, UpdateIssueChanges } from "@redmine-tools/core";
 
 function esc(text: string | undefined | null): string {
   return (text ?? "")
@@ -15,19 +15,29 @@ function fmtSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-function options(items: IssueStatus[], selectedName: string | undefined): string {
-  return items
-    .map(
-      (item) =>
-        `<option value="${item.id}"${item.name === selectedName ? " selected" : ""}>${esc(item.name)}</option>`,
-    )
-    .join("");
+function options(items: NamedRef[], selectedId: number | undefined, emptyLabel?: string): string {
+  const empty =
+    emptyLabel !== undefined
+      ? `<option value=""${selectedId === undefined ? " selected" : ""}>${esc(emptyLabel)}</option>`
+      : "";
+  return (
+    empty +
+    items
+      .map(
+        (item) =>
+          `<option value="${item.id}"${item.id === selectedId ? " selected" : ""}>${esc(item.name)}</option>`,
+      )
+      .join("")
+  );
 }
 
 export interface IssueDetailContext {
   issue: Issue;
-  statuses: IssueStatus[];
-  priorities: IssueStatus[];
+  statuses: NamedRef[];
+  priorities: NamedRef[];
+  trackers: NamedRef[];
+  assignees: NamedRef[];
+  categories: NamedRef[];
   onUpdate: (changes: UpdateIssueChanges) => Promise<void>;
 }
 
@@ -68,16 +78,25 @@ export class IssueDetailPanel {
     this.panel.webview.onDidReceiveMessage(async (msg: Record<string, unknown>) => {
       try {
         if (msg.command === "save") {
+          const num = (v: unknown): number | "" => (v === "" ? "" : Number(v));
           await this.ctx.onUpdate({
+            subject: String(msg.subject ?? this.ctx.issue.subject),
+            description: String(msg.description ?? ""),
+            trackerId: Number(msg.trackerId),
             statusId: Number(msg.statusId),
             priorityId: Number(msg.priorityId),
+            assignedToId: num(msg.assignedToId),
+            categoryId: num(msg.categoryId),
             doneRatio: Number(msg.doneRatio),
+            startDate: String(msg.startDate ?? ""),
+            dueDate: String(msg.dueDate ?? ""),
+            estimatedHours: msg.estimatedHours === "" ? "" : Number(msg.estimatedHours),
           });
           vscode.window.showInformationMessage(`#${this.ctx.issue.id} 저장됨`);
         } else if (msg.command === "comment") {
           const notes = String(msg.notes ?? "").trim();
           if (!notes) return;
-          await this.ctx.onUpdate({ notes });
+          await this.ctx.onUpdate({ notes, privateNotes: msg.privateNotes === true });
           vscode.window.showInformationMessage(`#${this.ctx.issue.id} 댓글 등록됨`);
         }
       } catch (err) {
@@ -88,7 +107,7 @@ export class IssueDetailPanel {
   }
 
   private render(): void {
-    const { issue, statuses, priorities } = this.ctx;
+    const { issue, statuses, priorities, trackers, assignees, categories } = this.ctx;
     this.panel.title = `#${issue.id} ${issue.subject}`;
 
     const doneOptions = Array.from({ length: 11 }, (_, i) => i * 10)
@@ -120,50 +139,50 @@ export class IssueDetailPanel {
 <head>
 <meta charset="UTF-8">
 <style>
-  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0 1.5em 2em; }
-  h1 { font-size: 1.3em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .4em; }
+  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0 1.5em 2em; max-width: 60em; }
   .meta, .dim { color: var(--vscode-descriptionForeground); font-size: .9em; }
   pre { white-space: pre-wrap; word-break: break-word; font-family: var(--vscode-font-family); background: var(--vscode-textBlockQuote-background); padding: .8em; border-radius: 4px; }
   .comment { margin-bottom: 1em; }
-  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: .45em 1em; border-radius: 3px; cursor: pointer; }
+  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: .45em 1.2em; border-radius: 3px; cursor: pointer; }
   button:hover { background: var(--vscode-button-hoverBackground); }
-  select, textarea {
+  input, select, textarea {
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: .35em;
-    font-family: var(--vscode-font-family);
+    font-family: var(--vscode-font-family); box-sizing: border-box;
   }
-  .editbar { display: flex; gap: 1em; align-items: end; flex-wrap: wrap; margin: .8em 0; }
-  .editbar label { display: flex; flex-direction: column; gap: .25em; font-size: .85em; color: var(--vscode-descriptionForeground); }
-  textarea { width: 100%; min-height: 5em; box-sizing: border-box; resize: vertical; }
+  #subject { width: 100%; font-size: 1.1em; font-weight: 600; margin: .6em 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: .7em; margin-bottom: .8em; }
+  .grid label, .desclabel { display: flex; flex-direction: column; gap: .25em; font-size: .85em; color: var(--vscode-descriptionForeground); }
+  textarea { width: 100%; resize: vertical; }
+  #description { min-height: 8em; }
+  #notes { min-height: 5em; }
   .commentform { margin-top: .6em; }
-  .commentform button { margin-top: .5em; }
-  h2 { font-size: 1.05em; margin-top: 1.5em; }
+  .row { display: flex; gap: 1em; align-items: center; margin-top: .5em; }
+  h2 { font-size: 1.05em; margin-top: 1.5em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .3em; }
   ul { padding-left: 1.2em; }
 </style>
 </head>
 <body>
-  <h1>#${issue.id} ${esc(issue.subject)}</h1>
-  <p class="meta">
-    담당: ${esc(issue.assigned_to?.name ?? "-")}
-    · 작성: ${esc(issue.author?.name ?? "-")}
-    · 수정: ${esc(issue.updated_on ?? "-")}
-  </p>
+  <p class="meta">#${issue.id} · ${esc(issue.project?.name ?? "")} · 작성: ${esc(issue.author?.name ?? "-")} · 수정: ${esc(issue.updated_on ?? "-")}</p>
+  <input id="subject" value="${esc(issue.subject)}">
 
-  <div class="editbar">
-    <label>상태
-      <select id="status">${options(statuses, issue.status?.name)}</select>
-    </label>
-    <label>우선순위
-      <select id="priority">${options(priorities, issue.priority?.name)}</select>
-    </label>
-    <label>진행률
-      <select id="done">${doneOptions}</select>
-    </label>
-    <button onclick="save()">저장</button>
+  <div class="grid">
+    <label>유형 <select id="tracker">${options(trackers, issue.tracker?.id)}</select></label>
+    <label>상태 <select id="status">${options(statuses, issue.status?.id)}</select></label>
+    <label>우선순위 <select id="priority">${options(priorities, issue.priority?.id)}</select></label>
+    <label>담당자 <select id="assignee">${options(assignees, issue.assigned_to?.id, "(없음)")}</select></label>
+    <label>범주 <select id="category">${options(categories, issue.category?.id, "(없음)")}</select></label>
+    <label>진척도 <select id="done">${doneOptions}</select></label>
+    <label>시작일 <input type="date" id="start" value="${esc(issue.start_date)}"></label>
+    <label>예정일 <input type="date" id="due" value="${esc(issue.due_date)}"></label>
+    <label>추정시간 <input type="number" id="estimated" min="0" step="0.5" value="${issue.estimated_hours ?? ""}"></label>
   </div>
 
-  <h2>내용</h2>
-  <pre>${esc(issue.description) || "(없음)"}</pre>
+  <label class="desclabel">설명
+    <textarea id="description">${esc(issue.description)}</textarea>
+  </label>
+  <div class="row"><button onclick="save()">저장</button></div>
+
   ${attachments ? `<h2>첨부파일</h2><ul>${attachments}</ul>` : ""}
 
   <h2>댓글 (${(issue.journals ?? []).filter((j) => j.notes).length})</h2>
@@ -171,21 +190,37 @@ export class IssueDetailPanel {
 
   <div class="commentform">
     <textarea id="notes" placeholder="댓글 입력..."></textarea>
-    <button onclick="comment()">댓글 등록</button>
+    <div class="row">
+      <button onclick="comment()">댓글 등록</button>
+      <label><input type="checkbox" id="private"> 비공개 댓글</label>
+    </div>
   </div>
 
   <script>
     const vscode = acquireVsCodeApi();
+    const val = (id) => document.getElementById(id).value;
     function save() {
       vscode.postMessage({
         command: "save",
-        statusId: document.getElementById("status").value,
-        priorityId: document.getElementById("priority").value,
-        doneRatio: document.getElementById("done").value,
+        subject: val("subject"),
+        description: val("description"),
+        trackerId: val("tracker"),
+        statusId: val("status"),
+        priorityId: val("priority"),
+        assignedToId: val("assignee"),
+        categoryId: val("category"),
+        doneRatio: val("done"),
+        startDate: val("start"),
+        dueDate: val("due"),
+        estimatedHours: val("estimated"),
       });
     }
     function comment() {
-      vscode.postMessage({ command: "comment", notes: document.getElementById("notes").value });
+      vscode.postMessage({
+        command: "comment",
+        notes: val("notes"),
+        privateNotes: document.getElementById("private").checked,
+      });
     }
   </script>
 </body>

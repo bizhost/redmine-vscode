@@ -32,16 +32,32 @@ export interface Issue {
   id: number;
   subject: string;
   description?: string;
+  project?: NamedRef;
   status: NamedRef;
   priority?: NamedRef;
   tracker?: NamedRef;
+  category?: NamedRef;
   author?: NamedRef;
   assigned_to?: NamedRef;
   done_ratio?: number;
+  start_date?: string;
+  due_date?: string;
+  estimated_hours?: number;
   created_on?: string;
   updated_on?: string;
   journals?: Journal[];
   attachments?: Attachment[];
+}
+
+export interface Project {
+  id: number;
+  name: string;
+  identifier: string;
+}
+
+export interface SearchResult {
+  id: number;
+  title: string;
 }
 
 export interface IssueStatus {

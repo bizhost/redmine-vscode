@@ -2,7 +2,7 @@
   "name": "redmine-vscode",
   "displayName": "Redmine Issues",
   "description": "Redmine 일감 목록/상세/상태변경/댓글",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "publisher": "konat",
   "engines": {
@@ -38,6 +38,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "redmine.search",
+        "title": "Redmine: 일감 검색",
+        "icon": "$(search)"
+      },
+      {
         "command": "redmine.setApiKey",
         "title": "Redmine: Set API Key"
       },
@@ -50,6 +55,11 @@
       "view/title": [
         {
           "command": "redmine.refresh",
+          "when": "view == redmineIssues",
+          "group": "navigation"
+        },
+        {
+          "command": "redmine.search",
           "when": "view == redmineIssues",
           "group": "navigation"
         }

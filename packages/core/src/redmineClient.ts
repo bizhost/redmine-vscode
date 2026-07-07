@@ -1,4 +1,4 @@
-import type { Issue, IssueStatus } from "./types.js";
+import type { Issue, IssueStatus, NamedRef, Project, SearchResult } from "./types.js";
 
 export interface RedmineClientOptions {
   url: string;
@@ -11,13 +11,24 @@ export interface ListIssuesOptions {
   assignedToMe?: boolean;
   statusId?: string;
   limit?: number;
+  /** 숫자 프로젝트 id — 설정된 identifier보다 우선 */
+  projectId?: number;
 }
 
 export interface UpdateIssueChanges {
+  subject?: string;
+  description?: string;
   statusId?: number;
-  notes?: string;
-  doneRatio?: number;
   priorityId?: number;
+  trackerId?: number;
+  categoryId?: number | "";
+  assignedToId?: number | "";
+  doneRatio?: number;
+  startDate?: string;
+  dueDate?: string;
+  estimatedHours?: number | "";
+  notes?: string;
+  privateNotes?: boolean;
 }
 
 export class RedmineApiError extends Error {
@@ -43,7 +54,8 @@ export class RedmineClient {
       sort: "updated_on:desc",
       limit: String(options.limit ?? 50),
     });
-    if (this.opts.projectIdentifier) params.set("project_id", this.opts.projectIdentifier);
+    const project = options.projectId ?? this.opts.projectIdentifier;
+    if (project) params.set("project_id", String(project));
     if (options.assignedToMe ?? true) params.set("assigned_to_id", "me");
     const data = await this.request<{ issues: Issue[] }>(`/issues.json?${params}`);
     return data.issues;
@@ -68,12 +80,53 @@ export class RedmineClient {
     return data.issue_priorities;
   }
 
+  async listProjects(): Promise<Project[]> {
+    const data = await this.request<{ projects: Project[] }>("/projects.json?limit=100");
+    return data.projects;
+  }
+
+  async listTrackers(): Promise<NamedRef[]> {
+    const data = await this.request<{ trackers: NamedRef[] }>("/trackers.json");
+    return data.trackers;
+  }
+
+  async listAssignees(projectId: number): Promise<NamedRef[]> {
+    const data = await this.request<{ memberships: Array<{ user?: NamedRef }> }>(
+      `/projects/${projectId}/memberships.json?limit=100`,
+    );
+    return data.memberships.map((m) => m.user).filter((u): u is NamedRef => !!u);
+  }
+
+  async listCategories(projectId: number): Promise<NamedRef[]> {
+    const data = await this.request<{ issue_categories: NamedRef[] }>(
+      `/projects/${projectId}/issue_categories.json`,
+    );
+    return data.issue_categories;
+  }
+
+  async searchIssues(query: string): Promise<SearchResult[]> {
+    const params = new URLSearchParams({ q: query, issues: "1", limit: "25" });
+    const data = await this.request<{ results: Array<{ id: number; title: string }> }>(
+      `/search.json?${params}`,
+    );
+    return data.results.map(({ id, title }) => ({ id, title }));
+  }
+
   async updateIssue(id: number, changes: UpdateIssueChanges): Promise<void> {
     const issue: Record<string, unknown> = {};
+    if (changes.subject !== undefined) issue.subject = changes.subject;
+    if (changes.description !== undefined) issue.description = changes.description;
     if (changes.statusId !== undefined) issue.status_id = changes.statusId;
-    if (changes.notes !== undefined) issue.notes = changes.notes;
-    if (changes.doneRatio !== undefined) issue.done_ratio = changes.doneRatio;
     if (changes.priorityId !== undefined) issue.priority_id = changes.priorityId;
+    if (changes.trackerId !== undefined) issue.tracker_id = changes.trackerId;
+    if (changes.categoryId !== undefined) issue.category_id = changes.categoryId;
+    if (changes.assignedToId !== undefined) issue.assigned_to_id = changes.assignedToId;
+    if (changes.doneRatio !== undefined) issue.done_ratio = changes.doneRatio;
+    if (changes.startDate !== undefined) issue.start_date = changes.startDate;
+    if (changes.dueDate !== undefined) issue.due_date = changes.dueDate;
+    if (changes.estimatedHours !== undefined) issue.estimated_hours = changes.estimatedHours;
+    if (changes.notes !== undefined) issue.notes = changes.notes;
+    if (changes.privateNotes) issue.private_notes = true;
     await this.request(`/issues/${id}.json`, {
       method: "PUT",
       body: JSON.stringify({ issue }),

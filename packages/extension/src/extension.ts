@@ -17,20 +17,32 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const provider = new IssuesProvider(getClient);
 
-  const openIssue = async (id: number): Promise<void> => {
+  const requireClient = async (): Promise<RedmineClient> => {
     const client = await getClient();
     if (!client) {
       throw new Error("Redmine 설정 필요: settings에서 url 설정 후 'Redmine: Set API Key' 실행");
     }
-    const [issue, statuses, priorities] = await Promise.all([
-      client.getIssue(id),
+    return client;
+  };
+
+  const openIssue = async (id: number): Promise<void> => {
+    const client = await requireClient();
+    const issue = await client.getIssue(id);
+    const projectId = issue.project?.id;
+    const [statuses, priorities, trackers, assignees, categories] = await Promise.all([
       client.listStatuses(),
       client.listPriorities(),
+      client.listTrackers(),
+      projectId ? client.listAssignees(projectId) : Promise.resolve([]),
+      projectId ? client.listCategories(projectId) : Promise.resolve([]),
     ]);
     IssueDetailPanel.show({
       issue,
       statuses,
       priorities,
+      trackers,
+      assignees,
+      categories,
       onUpdate: async (changes: UpdateIssueChanges) => {
         await client.updateIssue(id, changes);
         IssueDetailPanel.update(await client.getIssue(id));
@@ -62,6 +74,29 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(`일감 열기 실패: ${err instanceof Error ? err.message : err}`),
       ),
     ),
+
+    vscode.commands.registerCommand("redmine.search", async () => {
+      try {
+        const client = await requireClient();
+        const query = await vscode.window.showInputBox({
+          prompt: "일감 검색 (제목/내용/댓글)",
+          ignoreFocusOut: true,
+        });
+        if (!query) return;
+        const results = await client.searchIssues(query);
+        if (results.length === 0) {
+          vscode.window.showInformationMessage(`'${query}' 검색 결과 없음`);
+          return;
+        }
+        const picked = await vscode.window.showQuickPick(
+          results.map((r) => ({ label: r.title, id: r.id })),
+          { placeHolder: `검색 결과 ${results.length}건` },
+        );
+        if (picked) await openIssue(picked.id);
+      } catch (err) {
+        vscode.window.showErrorMessage(`검색 실패: ${err instanceof Error ? err.message : err}`);
+      }
+    }),
   );
 }
 

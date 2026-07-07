@@ -117,6 +117,96 @@ test("updateIssue: 진행률/우선순위 포함", async () => {
   });
 });
 
+test("updateIssue: 전체 필드 매핑", async () => {
+  const calls = mockFetch(204);
+  await makeClient().updateIssue(5, {
+    subject: "새 제목",
+    description: "새 설명",
+    trackerId: 2,
+    assignedToId: 7,
+    categoryId: 3,
+    startDate: "2026-07-01",
+    dueDate: "2026-07-31",
+    estimatedHours: 4,
+  });
+
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+    issue: {
+      subject: "새 제목",
+      description: "새 설명",
+      tracker_id: 2,
+      assigned_to_id: 7,
+      category_id: 3,
+      start_date: "2026-07-01",
+      due_date: "2026-07-31",
+      estimated_hours: 4,
+    },
+  });
+});
+
+test("updateIssue: 비공개 댓글", async () => {
+  const calls = mockFetch(204);
+  await makeClient().updateIssue(5, { notes: "비밀", privateNotes: true });
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+    issue: { notes: "비밀", private_notes: true },
+  });
+});
+
+test("listProjects: 프로젝트 목록", async () => {
+  const calls = mockFetch(200, { projects: [{ id: 1, name: "P1", identifier: "p1" }] });
+  const projects = await makeClient().listProjects();
+  const u = new URL(calls[0].url);
+  assert.equal(u.pathname, "/projects.json");
+  assert.equal(projects[0].identifier, "p1");
+});
+
+test("listTrackers: 유형 목록", async () => {
+  mockFetch(200, { trackers: [{ id: 1, name: "버그" }, { id: 4, name: "코드정리" }] });
+  const trackers = await makeClient().listTrackers();
+  assert.equal(trackers[1].name, "코드정리");
+});
+
+test("listAssignees: 멤버십에서 user만 추출", async () => {
+  const calls = mockFetch(200, {
+    memberships: [
+      { id: 1, user: { id: 7, name: "김 영진" } },
+      { id: 2, group: { id: 9, name: "팀" } },
+      { id: 3, user: { id: 8, name: "이 몽룡" } },
+    ],
+  });
+  const users = await makeClient().listAssignees(42);
+  const u = new URL(calls[0].url);
+  assert.equal(u.pathname, "/projects/42/memberships.json");
+  assert.deepEqual(users.map((x) => x.name), ["김 영진", "이 몽룡"]);
+});
+
+test("listCategories: 프로젝트 범주", async () => {
+  const calls = mockFetch(200, { issue_categories: [{ id: 1, name: "백엔드" }] });
+  const cats = await makeClient().listCategories(42);
+  const u = new URL(calls[0].url);
+  assert.equal(u.pathname, "/projects/42/issue_categories.json");
+  assert.equal(cats[0].name, "백엔드");
+});
+
+test("searchIssues: 검색 쿼리 + 결과", async () => {
+  const calls = mockFetch(200, {
+    results: [{ id: 100, title: "PHP 버전업", type: "issue", url: "..." }],
+  });
+  const results = await makeClient().searchIssues("PHP");
+  const u = new URL(calls[0].url);
+  assert.equal(u.pathname, "/search.json");
+  assert.equal(u.searchParams.get("q"), "PHP");
+  assert.equal(u.searchParams.get("issues"), "1");
+  assert.deepEqual(results, [{ id: 100, title: "PHP 버전업" }]);
+});
+
+test("listIssues: projectId 숫자 override", async () => {
+  const calls = mockFetch(200, { issues: [] });
+  await makeClient().listIssues({ projectId: 42 });
+  const u = new URL(calls[0].url);
+  assert.equal(u.searchParams.get("project_id"), "42");
+});
+
 test("listPriorities: 우선순위 목록", async () => {
   const calls = mockFetch(200, { issue_priorities: [{ id: 1, name: "낮음" }, { id: 2, name: "보통" }] });
   const priorities = await makeClient().listPriorities();

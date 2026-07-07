@@ -65,6 +65,7 @@ export class IssueDetailPanel {
   }
 
   private readonly panel: vscode.WebviewPanel;
+  private pendingFlash: string | undefined; // 다음 render에 표시할 성공 배너
 
   private constructor(ctx: IssueDetailContext) {
     this.ctx = ctx;
@@ -81,6 +82,7 @@ export class IssueDetailPanel {
       try {
         if (msg.command === "save") {
           const num = (v: unknown): number | "" => (v === "" ? "" : Number(v));
+          this.pendingFlash = "저장됨 ✓";
           await this.ctx.onUpdate({
             subject: String(msg.subject ?? this.ctx.issue.subject),
             description: String(msg.description ?? ""),
@@ -94,14 +96,15 @@ export class IssueDetailPanel {
             dueDate: String(msg.dueDate ?? ""),
             estimatedHours: msg.estimatedHours === "" ? "" : Number(msg.estimatedHours),
           });
-          vscode.window.showInformationMessage(`#${this.ctx.issue.id} 저장됨`);
         } else if (msg.command === "comment") {
           const notes = String(msg.notes ?? "").trim();
           if (!notes) return;
+          this.pendingFlash = "댓글 등록됨 ✓";
           await this.ctx.onUpdate({ notes, privateNotes: msg.privateNotes === true });
-          vscode.window.showInformationMessage(`#${this.ctx.issue.id} 댓글 등록됨`);
         }
       } catch (err) {
+        this.pendingFlash = undefined;
+        void this.panel.webview.postMessage({ command: "idle" }); // 버튼 복구
         vscode.window.showErrorMessage(`저장 실패: ${err instanceof Error ? err.message : err}`);
       }
     });
@@ -110,6 +113,8 @@ export class IssueDetailPanel {
 
   private render(): void {
     const { issue, statuses, priorities, trackers, assignees, categories } = this.ctx;
+    const flash = this.pendingFlash;
+    this.pendingFlash = undefined;
     this.panel.title = `#${issue.id} ${issue.subject}`;
 
     const doneOptions = Array.from({ length: 11 }, (_, i) => i * 10)
@@ -178,10 +183,26 @@ export class IssueDetailPanel {
   ul { padding-left: 1.2em; }
   li.att { list-style: none; margin: .6em 0; }
   ul.catts { padding-left: 0; margin: .3em 0 0; }
+  button.busy { opacity: .7; pointer-events: none; }
+  button.busy::after {
+    content: ""; display: inline-block; width: .8em; height: .8em; margin-left: .5em;
+    border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%;
+    animation: spin .8s linear infinite; vertical-align: -.1em;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .flash {
+    position: fixed; top: .8em; left: 50%; transform: translateX(-50%);
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    padding: .6em 1.6em; border-radius: 4px; font-weight: 600; font-size: 1.05em;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3); pointer-events: none; z-index: 10;
+    animation: flashfade 2.2s ease forwards;
+  }
+  @keyframes flashfade { 0%,60% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
   li.att img { max-width: 100%; max-height: 260px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); cursor: pointer; display: block; }
 </style>
 </head>
 <body>
+  ${flash ? `<div class="flash">${esc(flash)}</div>` : ""}
   <p class="meta">#${issue.id} · ${esc(issue.project?.name ?? "")} · 작성: ${esc(issue.author?.name ?? "-")} · 수정: ${esc(issue.updated_on ?? "-")}</p>
   <input id="subject" value="${esc(issue.subject)}">
 
@@ -200,7 +221,7 @@ export class IssueDetailPanel {
   <label class="desclabel">설명
     <textarea id="description">${esc(issue.description)}</textarea>
   </label>
-  <div class="row"><button onclick="save()">저장</button></div>
+  <div class="row"><button onclick="save(this)">저장</button></div>
 
   ${attachments ? `<h2>첨부파일</h2><ul>${attachments}</ul>` : ""}
 
@@ -210,7 +231,7 @@ export class IssueDetailPanel {
   <div class="commentform">
     <textarea id="notes" placeholder="댓글 입력..."></textarea>
     <div class="row">
-      <button onclick="comment()">댓글 등록</button>
+      <button onclick="comment(this)">댓글 등록</button>
       <label><input type="checkbox" id="private"> 비공개 댓글</label>
     </div>
   </div>
@@ -218,7 +239,14 @@ export class IssueDetailPanel {
   <script>
     const vscode = acquireVsCodeApi();
     const val = (id) => document.getElementById(id).value;
-    function save() {
+    function busy(btn) { btn.classList.add("busy"); btn.disabled = true; }
+    window.addEventListener("message", (e) => {
+      if (e.data.command === "idle") {
+        document.querySelectorAll("button").forEach((b) => { b.classList.remove("busy"); b.disabled = false; });
+      }
+    });
+    function save(btn) {
+      busy(btn);
       vscode.postMessage({
         command: "save",
         subject: val("subject"),
@@ -234,7 +262,9 @@ export class IssueDetailPanel {
         estimatedHours: val("estimated"),
       });
     }
-    function comment() {
+    function comment(btn) {
+      if (!val("notes").trim()) return;
+      busy(btn);
       vscode.postMessage({
         command: "comment",
         notes: val("notes"),

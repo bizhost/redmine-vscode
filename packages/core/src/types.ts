@@ -45,8 +45,19 @@ export interface Issue {
   estimated_hours?: number;
   created_on?: string;
   updated_on?: string;
+  parent?: { id: number };
+  children?: Array<{ id: number; subject: string; tracker?: NamedRef }>;
+  relations?: IssueRelation[];
   journals?: Journal[];
   attachments?: Attachment[];
+}
+
+export interface IssueRelation {
+  id: number;
+  issue_id: number;
+  issue_to_id: number;
+  relation_type: string;
+  delay?: number | null;
 }
 
 export interface Project {

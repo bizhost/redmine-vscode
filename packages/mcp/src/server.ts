@@ -77,6 +77,12 @@ server.registerTool(
         author: issue.author?.name,
         priority: issue.priority?.name,
         created_on: issue.created_on,
+        parent: issue.parent?.id,
+        children: issue.children?.map((c) => ({ id: c.id, subject: c.subject })),
+        relations: issue.relations?.map((r) => ({
+          type: r.relation_type,
+          issue: r.issue_id === issue.id ? r.issue_to_id : r.issue_id,
+        })),
         attachments: issue.attachments?.map((a) => ({
           filename: a.filename,
           filesize: a.filesize,

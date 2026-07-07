@@ -40,28 +40,44 @@ export interface IssueDetailContext {
   categories: NamedRef[];
   /** attachment id → data URI (이미지 미리보기) */
   previews: Record<number, string>;
+  /** 상위/연결 일감 id → 제목 (표시용) */
+  relatedSubjects: Record<number, string>;
   onUpdate: (changes: UpdateIssueChanges) => Promise<void>;
   uploadFile: (filename: string, data: Uint8Array) => Promise<string>;
 }
 
+const RELATION_LABEL: Record<string, string> = {
+  relates: "관련됨",
+  duplicates: "중복함",
+  duplicated: "중복됨",
+  blocks: "차단함",
+  blocked: "차단됨",
+  precedes: "선행",
+  follows: "후행",
+  copied_to: "복사됨",
+  copied_from: "복사본",
+};
+
 export class IssueDetailPanel {
-  private static current: IssueDetailPanel | undefined;
+  private static panels = new Map<number, IssueDetailPanel>(); // 일감별 탭
   private ctx: IssueDetailContext;
 
   static show(ctx: IssueDetailContext): void {
-    if (IssueDetailPanel.current) {
-      IssueDetailPanel.current.ctx = ctx;
-      IssueDetailPanel.current.render();
-      IssueDetailPanel.current.panel.reveal();
+    const existing = IssueDetailPanel.panels.get(ctx.issue.id);
+    if (existing) {
+      existing.ctx = ctx;
+      existing.render();
+      existing.panel.reveal();
       return;
     }
-    IssueDetailPanel.current = new IssueDetailPanel(ctx);
+    IssueDetailPanel.panels.set(ctx.issue.id, new IssueDetailPanel(ctx));
   }
 
   static update(issue: Issue): void {
-    if (IssueDetailPanel.current) {
-      IssueDetailPanel.current.ctx.issue = issue;
-      IssueDetailPanel.current.render();
+    const panel = IssueDetailPanel.panels.get(issue.id);
+    if (panel) {
+      panel.ctx.issue = issue;
+      panel.render();
     }
   }
 
@@ -78,7 +94,7 @@ export class IssueDetailPanel {
       { enableScripts: true },
     );
     this.panel.onDidDispose(() => {
-      IssueDetailPanel.current = undefined;
+      IssueDetailPanel.panels.delete(this.ctx.issue.id);
     });
     this.panel.webview.onDidReceiveMessage(async (msg: Record<string, unknown>) => {
       try {
@@ -126,6 +142,8 @@ export class IssueDetailPanel {
         } else if (msg.command === "removeFile") {
           this.pendingUploads.splice(Number(msg.index), 1);
           this.postFiles();
+        } else if (msg.command === "open") {
+          void vscode.commands.executeCommand("redmine.openIssue", Number(msg.id));
         } else if (msg.command === "pasteImage") {
           // 클립보드 이미지 → base64로 수신 → 첨부 대기열
           this.pendingUploads.push({
@@ -173,6 +191,29 @@ export class IssueDetailPanel {
     };
 
     const attachments = (issue.attachments ?? []).map(renderAttachment).join("");
+
+    const issueLink = (id: number, text: string): string =>
+      `<a href="#" class="ilink" data-id="${id}">${esc(text)}</a>`;
+    const subjectOf = (id: number): string => {
+      const subject = this.ctx.relatedSubjects[id];
+      return subject ? `#${id} ${subject}` : `#${id}`;
+    };
+
+    const parentHtml = issue.parent
+      ? `<p class="meta">상위 일감: ${issueLink(issue.parent.id, subjectOf(issue.parent.id))}</p>`
+      : "";
+
+    const children = (issue.children ?? [])
+      .map((c) => `<li>${issueLink(c.id, `#${c.id} ${c.subject}`)}</li>`)
+      .join("");
+
+    const relations = (issue.relations ?? [])
+      .map((r) => {
+        const otherId = r.issue_id === issue.id ? r.issue_to_id : r.issue_id;
+        const label = RELATION_LABEL[r.relation_type] ?? r.relation_type;
+        return `<li><span class="dim">${esc(label)}</span> ${issueLink(otherId, subjectOf(otherId))}</li>`;
+      })
+      .join("");
 
     const attachmentById = new Map((issue.attachments ?? []).map((a) => [a.id, a]));
     const comments = (issue.journals ?? [])
@@ -250,12 +291,15 @@ export class IssueDetailPanel {
     font-size: .85em; cursor: pointer;
   }
   .chip:hover { opacity: .75; }
+  a.ilink { color: var(--vscode-textLink-foreground); text-decoration: none; }
+  a.ilink:hover { text-decoration: underline; }
   li.att img { max-width: 100%; max-height: 260px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); cursor: pointer; display: block; }
 </style>
 </head>
 <body>
   ${flash ? `<div class="flash">${esc(flash)}</div>` : ""}
   <p class="meta">#${issue.id} · ${esc(issue.project?.name ?? "")} · 작성: ${esc(issue.author?.name ?? "-")} · 수정: ${esc(issue.updated_on ?? "-")}</p>
+  ${parentHtml}
   <input id="subject" value="${esc(issue.subject)}">
 
   <div class="grid">
@@ -275,6 +319,8 @@ export class IssueDetailPanel {
   </label>
   <div class="row"><button onclick="save(this)">저장</button></div>
 
+  ${children ? `<h2>하위 일감</h2><ul>${children}</ul>` : ""}
+  ${relations ? `<h2>연결된 일감</h2><ul>${relations}</ul>` : ""}
   ${attachments ? `<h2>첨부파일</h2><ul>${attachments}</ul>` : ""}
 
   <h2>댓글 (${(issue.journals ?? []).filter((j) => j.notes || j.details?.some((d) => d.property === "attachment")).length})</h2>
@@ -307,6 +353,12 @@ export class IssueDetailPanel {
       });
     }
     renderFiles(${JSON.stringify(this.pendingUploads.map((f) => f.name)).replace(/</g, "\\u003c")});
+    document.querySelectorAll("a.ilink").forEach((a) => {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        vscode.postMessage({ command: "open", id: Number(a.dataset.id) });
+      });
+    });
     document.getElementById("notes").addEventListener("paste", (e) => {
       const items = e.clipboardData && e.clipboardData.items;
       if (!items) return;

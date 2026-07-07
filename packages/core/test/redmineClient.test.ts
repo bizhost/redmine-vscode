@@ -86,13 +86,16 @@ test("listIssues: offset 페이징", async () => {
   assert.equal(page.totalCount, 123);
 });
 
-test("getIssue: include=journals,attachments + 파싱", async () => {
+test("getIssue: include=journals,attachments,children,relations + 파싱", async () => {
   const calls = mockFetch(200, {
     issue: {
       id: 42,
       subject: "제목",
       description: "내용",
       status: { id: 2, name: "In Progress" },
+      parent: { id: 10 },
+      children: [{ id: 43, subject: "하위작업" }],
+      relations: [{ id: 1, issue_id: 42, issue_to_id: 99, relation_type: "relates" }],
       journals: [{ id: 7, user: { id: 1, name: "kim" }, notes: "댓글", created_on: "2026-07-01T00:00:00Z" }],
       attachments: [{ id: 9, filename: "a.png", filesize: 123, content_url: "https://redmine.example.com/attachments/download/9/a.png" }],
     },
@@ -101,11 +104,14 @@ test("getIssue: include=journals,attachments + 파싱", async () => {
 
   const u = new URL(calls[0].url);
   assert.equal(u.pathname, "/issues/42.json");
-  assert.equal(u.searchParams.get("include"), "journals,attachments");
+  assert.equal(u.searchParams.get("include"), "journals,attachments,children,relations");
 
   assert.equal(issue.subject, "제목");
   assert.equal(issue.journals?.[0].notes, "댓글");
   assert.equal(issue.attachments?.[0].filename, "a.png");
+  assert.equal(issue.parent?.id, 10);
+  assert.equal(issue.children?.[0].subject, "하위작업");
+  assert.equal(issue.relations?.[0].issue_to_id, 99);
 });
 
 test("updateIssue: PUT body 형태", async () => {

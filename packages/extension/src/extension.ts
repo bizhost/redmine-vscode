@@ -95,14 +95,36 @@ export function activate(context: vscode.ExtensionContext): void {
     const client = await requireClient();
     const issue = await client.getIssue(id);
     const projectId = issue.project?.id;
-    const [statuses, priorities, trackers, assignees, categories, previews] = await Promise.all([
-      client.listStatuses(),
-      client.listPriorities(),
-      client.listTrackers(),
-      projectId ? client.listAssignees(projectId) : Promise.resolve([]),
-      projectId ? client.listCategories(projectId) : Promise.resolve([]),
-      loadPreviews(client, issue.attachments ?? []),
-    ]);
+    // 상위/연결 일감 제목 (relations엔 id만 옴)
+    const relatedIds = new Set<number>();
+    if (issue.parent) relatedIds.add(issue.parent.id);
+    for (const r of issue.relations ?? []) {
+      relatedIds.add(r.issue_id === issue.id ? r.issue_to_id : r.issue_id);
+    }
+    const loadRelatedSubjects = async (): Promise<Record<number, string>> => {
+      const subjects: Record<number, string> = {};
+      await Promise.all(
+        [...relatedIds].slice(0, 20).map(async (rid) => {
+          try {
+            subjects[rid] = (await client.getIssue(rid)).subject;
+          } catch {
+            // 권한 없음/삭제 → 번호만 표시
+          }
+        }),
+      );
+      return subjects;
+    };
+
+    const [statuses, priorities, trackers, assignees, categories, previews, relatedSubjects] =
+      await Promise.all([
+        client.listStatuses(),
+        client.listPriorities(),
+        client.listTrackers(),
+        projectId ? client.listAssignees(projectId) : Promise.resolve([]),
+        projectId ? client.listCategories(projectId) : Promise.resolve([]),
+        loadPreviews(client, issue.attachments ?? []),
+        loadRelatedSubjects(),
+      ]);
     IssueDetailPanel.show({
       issue,
       statuses,
@@ -111,6 +133,7 @@ export function activate(context: vscode.ExtensionContext): void {
       assignees,
       categories,
       previews,
+      relatedSubjects,
       uploadFile: (filename, data) => client.uploadFile(filename, data),
       onUpdate: async (changes: UpdateIssueChanges) => {
         await client.updateIssue(id, changes);

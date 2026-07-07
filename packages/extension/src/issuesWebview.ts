@@ -3,12 +3,12 @@ import type { Issue, ListIssuesOptions, RedmineClient } from "@redmine-tools/cor
 
 export const PAGE_SIZE = 50;
 
-/** 검색어 → listIssues 옵션. #번호는 직접 조회(담당/상태 무관) */
+/** 검색어 → listIssues 옵션. 검색은 닫힌 일감 포함 전체 상태 대상. #번호는 직접 조회(담당 무관) */
 export function searchOpts(query: string): Partial<ListIssuesOptions> {
   const m = query.match(/^#?(\d+)$/);
   return m
     ? { issueId: Number(m[1]), statusId: "*", assignedToMe: false }
-    : { subjectQuery: query };
+    : { subjectQuery: query, statusId: "*" };
 }
 
 interface ItemRow {

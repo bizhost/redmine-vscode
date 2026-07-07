@@ -243,7 +243,10 @@ export class IssueDetailPanel {
 <head>
 <meta charset="UTF-8">
 <style>
-  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0 1.5em 2em; max-width: 60em; }
+  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0 1.5em 2em; }
+  .layout { display: flex; flex-wrap: wrap; gap: 0 2.5em; align-items: flex-start; }
+  .main { flex: 1 1 40em; max-width: 60em; min-width: 0; }
+  .side { flex: 0 1 24em; min-width: 18em; }
   .meta, .dim { color: var(--vscode-descriptionForeground); font-size: .9em; }
   pre { white-space: pre-wrap; word-break: break-word; font-family: var(--vscode-font-family); background: var(--vscode-textBlockQuote-background); padding: .8em; border-radius: 4px; }
   .comment {
@@ -301,6 +304,8 @@ export class IssueDetailPanel {
 </head>
 <body>
   ${flash ? `<div class="flash">${esc(flash)}</div>` : ""}
+  <div class="layout">
+  <div class="main">
   <p class="meta">#${issue.id} · ${esc(issue.project?.name ?? "")} · 작성: ${esc(issue.author?.name ?? "-")} · 수정: ${esc(issue.updated_on ?? "-")}</p>
   ${parentHtml}
   <input id="subject" value="${esc(issue.subject)}">
@@ -327,7 +332,6 @@ export class IssueDetailPanel {
 
   ${children ? `<h2>하위 일감</h2><ul>${children}</ul>` : ""}
   ${relations ? `<h2>연결된 일감</h2><ul>${relations}</ul>` : ""}
-  ${attachments ? `<h2>첨부파일</h2><ul>${attachments}</ul>` : ""}
 
   <h2>댓글 (${(issue.journals ?? []).filter((j) => j.notes || j.details?.some((d) => d.property === "attachment")).length})</h2>
   ${comments || '<p class="dim">댓글 없음</p>'}
@@ -340,6 +344,9 @@ export class IssueDetailPanel {
       <button onclick="vscode.postMessage({command:'pickFiles'})">파일 첨부</button>
       <label><input type="checkbox" id="private"> 비공개 댓글</label>
     </div>
+  </div>
+  </div>
+  ${attachments ? `<div class="side"><h2>첨부파일</h2><ul>${attachments}</ul></div>` : ""}
   </div>
 
   <script>

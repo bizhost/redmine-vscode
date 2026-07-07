@@ -1,0 +1,19 @@
+{
+  "name": "redmine",
+  "version": "0.1.1",
+  "description": "Redmine 일감 — 목록/상세/상태변경/댓글/내보내기 MCP 서버",
+  "author": {
+    "name": "bizhost"
+  },
+  "mcpServers": {
+    "redmine": {
+      "command": "npx",
+      "args": ["-y", "@bizhost/redmine-mcp"],
+      "env": {
+        "REDMINE_URL": "${REDMINE_URL}",
+        "REDMINE_API_KEY": "${REDMINE_API_KEY}",
+        "REDMINE_PROJECT": "${REDMINE_PROJECT:-}"
+      }
+    }
+  }
+}

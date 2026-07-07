@@ -1,0 +1,13 @@
+{
+  "name": "bizhost",
+  "owner": {
+    "name": "bizhost"
+  },
+  "plugins": [
+    {
+      "name": "redmine",
+      "source": "./",
+      "description": "Redmine 일감 — 목록/상세/상태변경/댓글/내보내기 MCP 서버"
+    }
+  ]
+}

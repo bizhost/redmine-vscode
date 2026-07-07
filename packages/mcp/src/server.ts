@@ -72,7 +72,7 @@ server.registerTool(
 server.registerTool(
   "get_issue",
   {
-    description: "일감 상세 조회: 제목, 내용, 상태, 담당자, 첨부파일, 댓글 이력.",
+    description: "일감 상세 조회: 제목, 내용, 상태, 담당자, 첨부파일, 댓글 이력, 연결된 커밋.",
     inputSchema: { id: z.number().int().describe("일감 번호") },
   },
   async ({ id }) => {
@@ -98,6 +98,12 @@ server.registerTool(
         comments: issue.journals
           ?.filter((j) => j.notes)
           .map((j) => ({ user: j.user?.name, notes: j.notes, created_on: j.created_on })),
+        changesets: issue.changesets?.map((c) => ({
+          revision: c.revision,
+          user: c.user?.name,
+          comments: c.comments,
+          committed_on: c.committed_on,
+        })),
       });
     } catch (err) {
       return fail(err);

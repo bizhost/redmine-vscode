@@ -44,3 +44,15 @@ test("buildIssueMarkdown: 제목/메타/설명/첨부/댓글 포함", () => {
   assert.ok(md.includes("## 댓글 (1)")); // 빈 저널 제외
   assert.ok(md.includes("### 김 영진 · 2026-07-01"));
 });
+
+test("buildIssueMarkdown: 연결된 커밋 — 있으면 섹션, 없으면 생략", () => {
+  assert.ok(!buildIssueMarkdown(issue).includes("연결된 커밋")); // changesets 없음
+  const withCs = buildIssueMarkdown({
+    ...issue,
+    changesets: [
+      { revision: "abc123", user: { id: 7, name: "김 영진" }, comments: "버그 수정", committed_on: "2026-07-03" },
+    ],
+  });
+  assert.ok(withCs.includes("## 연결된 커밋 (1)"));
+  assert.ok(withCs.includes("abc123 · 김 영진 · 2026-07-03: 버그 수정"));
+});

@@ -43,6 +43,15 @@ export function buildIssueMarkdown(issue: Issue, fileNames?: Map<number, string>
     lines.push("");
   }
 
+  if (issue.changesets?.length) {
+    lines.push(`## 연결된 커밋 (${issue.changesets.length})`, "");
+    for (const c of issue.changesets) {
+      const meta = [c.revision, c.user?.name, c.committed_on].filter(Boolean).join(" · ");
+      lines.push(`- ${meta}${c.comments ? `: ${c.comments.trim()}` : ""}`);
+    }
+    lines.push("");
+  }
+
   const journals = (issue.journals ?? []).filter(
     (j) => j.notes || j.details?.some((d) => d.property === "attachment"),
   );

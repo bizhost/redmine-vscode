@@ -101,7 +101,7 @@ test("listIssues: offset 페이징", async () => {
   assert.equal(page.totalCount, 123);
 });
 
-test("getIssue: include=journals,attachments,children,relations + 파싱", async () => {
+test("getIssue: include=journals,attachments,children,relations,changesets + 파싱", async () => {
   const calls = mockFetch(200, {
     issue: {
       id: 42,
@@ -113,13 +113,15 @@ test("getIssue: include=journals,attachments,children,relations + 파싱", async
       relations: [{ id: 1, issue_id: 42, issue_to_id: 99, relation_type: "relates" }],
       journals: [{ id: 7, user: { id: 1, name: "kim" }, notes: "댓글", created_on: "2026-07-01T00:00:00Z" }],
       attachments: [{ id: 9, filename: "a.png", filesize: 123, content_url: "https://redmine.example.com/attachments/download/9/a.png" }],
+      changesets: [{ revision: "abc123", user: { id: 1, name: "kim" }, comments: "수정", committed_on: "2026-07-03T00:00:00Z" }],
     },
   });
   const issue = await makeClient().getIssue(42);
 
   const u = new URL(calls[0].url);
   assert.equal(u.pathname, "/issues/42.json");
-  assert.equal(u.searchParams.get("include"), "journals,attachments,children,relations");
+  assert.equal(u.searchParams.get("include"), "journals,attachments,children,relations,changesets");
+  assert.equal(issue.changesets?.[0].revision, "abc123");
 
   assert.equal(issue.subject, "제목");
   assert.equal(issue.journals?.[0].notes, "댓글");

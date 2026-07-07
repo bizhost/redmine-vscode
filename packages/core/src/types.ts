@@ -28,6 +28,14 @@ export interface Journal {
   details?: JournalDetail[];
 }
 
+/** 저장소 연동 시 이슈에 연결된 커밋. diff는 API 미제공 — 메타만 */
+export interface Changeset {
+  revision: string;
+  user?: NamedRef;
+  comments?: string;
+  committed_on?: string;
+}
+
 export interface Issue {
   id: number;
   subject: string;
@@ -50,6 +58,7 @@ export interface Issue {
   relations?: IssueRelation[];
   journals?: Journal[];
   attachments?: Attachment[];
+  changesets?: Changeset[];
 }
 
 export interface IssueRelation {

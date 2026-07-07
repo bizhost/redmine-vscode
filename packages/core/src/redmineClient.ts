@@ -97,7 +97,7 @@ export class RedmineClient {
 
   async getIssue(id: number): Promise<Issue> {
     const data = await this.request<{ issue: Issue }>(
-      `/issues/${id}.json?include=journals,attachments,children,relations`,
+      `/issues/${id}.json?include=journals,attachments,children,relations,changesets`,
     );
     return data.issue;
   }

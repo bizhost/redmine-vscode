@@ -222,6 +222,15 @@ export class IssueDetailPanel {
       })
       .join("");
 
+    const changesets = (issue.changesets ?? [])
+      .map((c) => {
+        const meta = [esc(c.user?.name), esc(c.committed_on)].filter(Boolean).join(" · ");
+        return `<li><code>${esc(c.revision)}</code>${meta ? ` <span class="dim">${meta}</span>` : ""}${
+          c.comments ? `<div>${esc(c.comments.trim())}</div>` : ""
+        }</li>`;
+      })
+      .join("");
+
     const attachmentById = new Map((issue.attachments ?? []).map((a) => [a.id, a]));
     const comments = (issue.journals ?? [])
       .filter((j) => j.notes || j.details?.some((d) => d.property === "attachment"))
@@ -337,6 +346,7 @@ export class IssueDetailPanel {
 
   ${children ? `<h2>하위 일감</h2><ul>${children}</ul>` : ""}
   ${relations ? `<h2>연결된 일감</h2><ul>${relations}</ul>` : ""}
+  ${changesets ? `<h2>연결된 커밋</h2><ul>${changesets}</ul>` : ""}
 
   <h2>댓글 (${(issue.journals ?? []).filter((j) => j.notes || j.details?.some((d) => d.property === "attachment")).length})</h2>
   ${comments || '<p class="dim">댓글 없음</p>'}

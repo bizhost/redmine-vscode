@@ -84,6 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
       assignees,
       categories,
       previews,
+      uploadFile: (filename, data) => client.uploadFile(filename, data),
       onUpdate: async (changes: UpdateIssueChanges) => {
         await client.updateIssue(id, changes);
         IssueDetailPanel.update(await client.getIssue(id));

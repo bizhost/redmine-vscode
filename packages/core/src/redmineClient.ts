@@ -35,6 +35,7 @@ export interface UpdateIssueChanges {
   estimatedHours?: number | "";
   notes?: string;
   privateNotes?: boolean;
+  uploads?: Array<{ token: string; filename: string; contentType?: string }>;
 }
 
 export class RedmineApiError extends Error {
@@ -121,6 +122,26 @@ export class RedmineClient {
     return data.results.map(({ id, title }) => ({ id, title }));
   }
 
+  /** 파일 업로드 → 첨부 토큰 (updateIssue uploads에 사용) */
+  async uploadFile(filename: string, data: ArrayBuffer | Uint8Array): Promise<string> {
+    const res = await fetch(
+      `${this.baseUrl}/uploads.json?filename=${encodeURIComponent(filename)}`,
+      {
+        method: "POST",
+        headers: {
+          "X-Redmine-API-Key": this.opts.apiKey,
+          "Content-Type": "application/octet-stream",
+        },
+        body: data as BodyInit,
+      },
+    );
+    if (!res.ok) {
+      throw new RedmineApiError(res.status, `업로드 실패 ${res.status}`);
+    }
+    const json = (await res.json()) as { upload: { token: string } };
+    return json.upload.token;
+  }
+
   /** 첨부 다운로드 — content_url 절대경로 사용 */
   async downloadAttachment(contentUrl: string): Promise<ArrayBuffer> {
     const res = await fetch(contentUrl, {
@@ -147,6 +168,13 @@ export class RedmineClient {
     if (changes.estimatedHours !== undefined) issue.estimated_hours = changes.estimatedHours;
     if (changes.notes !== undefined) issue.notes = changes.notes;
     if (changes.privateNotes) issue.private_notes = true;
+    if (changes.uploads?.length) {
+      issue.uploads = changes.uploads.map((u) => ({
+        token: u.token,
+        filename: u.filename,
+        ...(u.contentType ? { content_type: u.contentType } : {}),
+      }));
+    }
     await this.request(`/issues/${id}.json`, {
       method: "PUT",
       body: JSON.stringify({ issue }),

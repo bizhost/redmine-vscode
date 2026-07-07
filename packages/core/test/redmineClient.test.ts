@@ -271,6 +271,34 @@ test("downloadAttachment: 실패 → RedmineApiError", async () => {
   );
 });
 
+test("uploadFile: POST /uploads.json → token", async () => {
+  const calls = mockFetch(201, { upload: { token: "7.abc123" } });
+  const token = await makeClient().uploadFile("스크린샷.png", new Uint8Array([1, 2, 3]));
+
+  assert.equal(token, "7.abc123");
+  const u = new URL(calls[0].url);
+  assert.equal(u.pathname, "/uploads.json");
+  assert.equal(u.searchParams.get("filename"), "스크린샷.png");
+  assert.equal(calls[0].init?.method, "POST");
+  const headers = calls[0].init?.headers as Record<string, string>;
+  assert.equal(headers["Content-Type"], "application/octet-stream");
+  assert.equal(headers["X-Redmine-API-Key"], "SECRET");
+});
+
+test("updateIssue: uploads 첨부 매핑", async () => {
+  const calls = mockFetch(204);
+  await makeClient().updateIssue(5, {
+    notes: "파일 첨부",
+    uploads: [{ token: "7.abc", filename: "a.png", contentType: "image/png" }],
+  });
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+    issue: {
+      notes: "파일 첨부",
+      uploads: [{ token: "7.abc", filename: "a.png", content_type: "image/png" }],
+    },
+  });
+});
+
 test("listStatuses: 상태 목록 파싱", async () => {
   mockFetch(200, { issue_statuses: [{ id: 1, name: "New" }, { id: 5, name: "Closed", is_closed: true }] });
   const statuses = await makeClient().listStatuses();

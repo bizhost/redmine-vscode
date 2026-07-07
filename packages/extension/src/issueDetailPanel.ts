@@ -41,6 +41,7 @@ export interface IssueDetailContext {
   /** attachment id → data URI (이미지 미리보기) */
   previews: Record<number, string>;
   onUpdate: (changes: UpdateIssueChanges) => Promise<void>;
+  uploadFile: (filename: string, data: Uint8Array) => Promise<string>;
 }
 
 export class IssueDetailPanel {
@@ -66,6 +67,7 @@ export class IssueDetailPanel {
 
   private readonly panel: vscode.WebviewPanel;
   private pendingFlash: string | undefined; // 다음 render에 표시할 성공 배너
+  private pendingUploads: Array<{ name: string; data: Uint8Array }> = []; // 댓글 첨부 대기
 
   private constructor(ctx: IssueDetailContext) {
     this.ctx = ctx;
@@ -98,9 +100,32 @@ export class IssueDetailPanel {
           });
         } else if (msg.command === "comment") {
           const notes = String(msg.notes ?? "").trim();
-          if (!notes) return;
+          const files = this.pendingUploads;
+          if (!notes && files.length === 0) return;
           this.pendingFlash = "댓글 등록됨 ✓";
-          await this.ctx.onUpdate({ notes, privateNotes: msg.privateNotes === true });
+          const uploads = [];
+          for (const f of files) {
+            uploads.push({ token: await this.ctx.uploadFile(f.name, f.data), filename: f.name });
+          }
+          this.pendingUploads = []; // 성공 렌더 전에 비움, 실패 시 catch에서 복구
+          try {
+            await this.ctx.onUpdate({ notes, privateNotes: msg.privateNotes === true, uploads });
+          } catch (err) {
+            this.pendingUploads = files;
+            throw err;
+          }
+        } else if (msg.command === "pickFiles") {
+          const picked = await vscode.window.showOpenDialog({ canSelectMany: true, openLabel: "첨부" });
+          for (const uri of picked ?? []) {
+            this.pendingUploads.push({
+              name: uri.path.split("/").pop() ?? "file",
+              data: await vscode.workspace.fs.readFile(uri),
+            });
+          }
+          this.postFiles();
+        } else if (msg.command === "removeFile") {
+          this.pendingUploads.splice(Number(msg.index), 1);
+          this.postFiles();
         }
       } catch (err) {
         this.pendingFlash = undefined;
@@ -109,6 +134,13 @@ export class IssueDetailPanel {
       }
     });
     this.render();
+  }
+
+  private postFiles(): void {
+    void this.panel.webview.postMessage({
+      command: "files",
+      names: this.pendingUploads.map((f) => f.name),
+    });
   }
 
   private render(): void {
@@ -163,7 +195,14 @@ export class IssueDetailPanel {
   body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0 1.5em 2em; max-width: 60em; }
   .meta, .dim { color: var(--vscode-descriptionForeground); font-size: .9em; }
   pre { white-space: pre-wrap; word-break: break-word; font-family: var(--vscode-font-family); background: var(--vscode-textBlockQuote-background); padding: .8em; border-radius: 4px; }
-  .comment { margin-bottom: 1em; }
+  .comment {
+    margin-bottom: .8em; padding: .7em .9em; border-radius: 5px;
+    background: var(--vscode-editorWidget-background, var(--vscode-textBlockQuote-background));
+    border: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-button-background);
+  }
+  .comment .meta { font-weight: 600; margin-bottom: .35em; }
+  .comment pre { margin: 0; background: transparent; padding: 0; }
   button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: .45em 1.2em; border-radius: 3px; cursor: pointer; }
   button:hover { background: var(--vscode-button-hoverBackground); }
   input, select, textarea {
@@ -198,6 +237,12 @@ export class IssueDetailPanel {
     animation: flashfade 2.2s ease forwards;
   }
   @keyframes flashfade { 0%,60% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+  .chip {
+    display: inline-block; margin: 0 .35em .3em 0; padding: .15em .6em; border-radius: 10px;
+    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+    font-size: .85em; cursor: pointer;
+  }
+  .chip:hover { opacity: .75; }
   li.att img { max-width: 100%; max-height: 260px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); cursor: pointer; display: block; }
 </style>
 </head>
@@ -230,8 +275,10 @@ export class IssueDetailPanel {
 
   <div class="commentform">
     <textarea id="notes" placeholder="댓글 입력..."></textarea>
+    <div id="files"></div>
     <div class="row">
       <button onclick="comment(this)">댓글 등록</button>
+      <button onclick="vscode.postMessage({command:'pickFiles'})">파일 첨부</button>
       <label><input type="checkbox" id="private"> 비공개 댓글</label>
     </div>
   </div>
@@ -240,9 +287,24 @@ export class IssueDetailPanel {
     const vscode = acquireVsCodeApi();
     const val = (id) => document.getElementById(id).value;
     function busy(btn) { btn.classList.add("busy"); btn.disabled = true; }
+    function renderFiles(names) {
+      const el = document.getElementById("files");
+      el.textContent = "";
+      names.forEach((n, i) => {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = n + " ✕";
+        chip.title = "제거";
+        chip.onclick = () => vscode.postMessage({ command: "removeFile", index: i });
+        el.appendChild(chip);
+      });
+    }
+    renderFiles(${JSON.stringify(this.pendingUploads.map((f) => f.name)).replace(/</g, "\\u003c")});
     window.addEventListener("message", (e) => {
       if (e.data.command === "idle") {
         document.querySelectorAll("button").forEach((b) => { b.classList.remove("busy"); b.disabled = false; });
+      } else if (e.data.command === "files") {
+        renderFiles(e.data.names);
       }
     });
     function save(btn) {
@@ -263,7 +325,7 @@ export class IssueDetailPanel {
       });
     }
     function comment(btn) {
-      if (!val("notes").trim()) return;
+      if (!val("notes").trim() && !document.getElementById("files").childElementCount) return;
       busy(btn);
       vscode.postMessage({
         command: "comment",

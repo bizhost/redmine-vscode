@@ -118,27 +118,36 @@ export class IssueDetailPanel {
       )
       .join("");
 
-    const attachments = (issue.attachments ?? [])
-      .map((a) => {
-        const preview = this.ctx.previews[a.id];
-        const label = `${esc(a.filename)} <span class="dim">(${fmtSize(a.filesize)})</span>`;
-        if (preview) {
-          // 클릭 → 브라우저에서 원본
-          return `<li class="att"><a href="${esc(a.content_url)}" title="브라우저로 열기"><img src="${preview}" alt="${esc(a.filename)}"></a><div>${label}</div></li>`;
-        }
-        return `<li><a href="${esc(a.content_url)}">${esc(a.filename)}</a> <span class="dim">(${fmtSize(a.filesize)})</span></li>`;
-      })
-      .join("");
+    const renderAttachment = (a: NonNullable<Issue["attachments"]>[number]): string => {
+      const preview = this.ctx.previews[a.id];
+      const label = `${esc(a.filename)} <span class="dim">(${fmtSize(a.filesize)})</span>`;
+      if (preview) {
+        // 클릭 → 브라우저에서 원본
+        return `<li class="att"><a href="${esc(a.content_url)}" title="브라우저로 열기"><img src="${preview}" alt="${esc(a.filename)}"></a><div>${label}</div></li>`;
+      }
+      return `<li><a href="${esc(a.content_url)}">${esc(a.filename)}</a> <span class="dim">(${fmtSize(a.filesize)})</span></li>`;
+    };
 
+    const attachments = (issue.attachments ?? []).map(renderAttachment).join("");
+
+    const attachmentById = new Map((issue.attachments ?? []).map((a) => [a.id, a]));
     const comments = (issue.journals ?? [])
-      .filter((j) => j.notes)
-      .map(
-        (j) => `
+      .filter((j) => j.notes || j.details?.some((d) => d.property === "attachment"))
+      .map((j) => {
+        // 이 댓글에 첨부된 파일들 (details property=attachment, name=첨부 id)
+        const journalAtts = (j.details ?? [])
+          .filter((d) => d.property === "attachment")
+          .map((d) => attachmentById.get(Number(d.name)))
+          .filter((a): a is NonNullable<typeof a> => !!a)
+          .map(renderAttachment)
+          .join("");
+        return `
         <div class="comment">
           <div class="meta">${esc(j.user?.name)} · ${esc(j.created_on)}</div>
-          <pre>${esc(j.notes)}</pre>
-        </div>`,
-      )
+          ${j.notes ? `<pre>${esc(j.notes)}</pre>` : ""}
+          ${journalAtts ? `<ul class="catts">${journalAtts}</ul>` : ""}
+        </div>`;
+      })
       .join("");
 
     this.panel.webview.html = `<!DOCTYPE html>
@@ -168,6 +177,7 @@ export class IssueDetailPanel {
   h2 { font-size: 1.05em; margin-top: 1.5em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .3em; }
   ul { padding-left: 1.2em; }
   li.att { list-style: none; margin: .6em 0; }
+  ul.catts { padding-left: 0; margin: .3em 0 0; }
   li.att img { max-width: 100%; max-height: 260px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); cursor: pointer; display: block; }
 </style>
 </head>
@@ -194,7 +204,7 @@ export class IssueDetailPanel {
 
   ${attachments ? `<h2>첨부파일</h2><ul>${attachments}</ul>` : ""}
 
-  <h2>댓글 (${(issue.journals ?? []).filter((j) => j.notes).length})</h2>
+  <h2>댓글 (${(issue.journals ?? []).filter((j) => j.notes || j.details?.some((d) => d.property === "attachment")).length})</h2>
   ${comments || '<p class="dim">댓글 없음</p>'}
 
   <div class="commentform">

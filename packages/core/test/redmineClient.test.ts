@@ -320,6 +320,57 @@ test("updateIssue: uploads 첨부 매핑", async () => {
   });
 });
 
+test("createIssue: POST body 매핑 + 생성 일감 반환", async () => {
+  const calls = mockFetch(201, { issue: { id: 999, subject: "새 일감", status: { id: 1, name: "신규" } } });
+  const created = await makeClient().createIssue({
+    projectId: 42,
+    trackerId: 2,
+    subject: "새 일감",
+    description: "내용",
+    assignedToId: 7,
+    isPrivate: true,
+    uploads: [{ token: "1.a", filename: "f.png" }],
+  });
+
+  assert.equal(created.id, 999);
+  assert.equal(calls[0].init?.method, "POST");
+  const u = new URL(calls[0].url);
+  assert.equal(u.pathname, "/issues.json");
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+    issue: {
+      project_id: 42,
+      tracker_id: 2,
+      subject: "새 일감",
+      description: "내용",
+      assigned_to_id: 7,
+      is_private: true,
+      uploads: [{ token: "1.a", filename: "f.png" }],
+    },
+  });
+});
+
+test("422 → 검증 에러 메시지 포함", async () => {
+  mockFetch(422, { errors: ["제목을(를) 입력해 주세요", "유형은(는) 필수입니다"] });
+  await assert.rejects(
+    () => makeClient().createIssue({ projectId: 1, subject: "" }),
+    (err: unknown) =>
+      err instanceof RedmineApiError &&
+      err.status === 422 &&
+      err.message.includes("제목을(를) 입력해 주세요"),
+  );
+});
+
+test("listProjectTrackers: 프로젝트별 유형", async () => {
+  const calls = mockFetch(200, {
+    project: { id: 42, name: "P", trackers: [{ id: 2, name: "수정" }] },
+  });
+  const trackers = await makeClient().listProjectTrackers(42);
+  const u = new URL(calls[0].url);
+  assert.equal(u.pathname, "/projects/42.json");
+  assert.equal(u.searchParams.get("include"), "trackers");
+  assert.equal(trackers[0].name, "수정");
+});
+
 test("listStatuses: 상태 목록 파싱", async () => {
   mockFetch(200, { issue_statuses: [{ id: 1, name: "New" }, { id: 5, name: "Closed", is_closed: true }] });
   const statuses = await makeClient().listStatuses();

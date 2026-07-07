@@ -30,6 +30,7 @@ async function issueIdsForFile(fileUri: vscode.Uri): Promise<number[]> {
 import { MyIssuesProvider } from "./myIssuesProvider";
 import { ProjectsProvider } from "./projectsProvider";
 import { IssueDetailPanel } from "./issueDetailPanel";
+import { NewIssuePanel } from "./newIssuePanel";
 
 const SECRET_KEY = "redmine.apiKey";
 
@@ -194,6 +195,43 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(`일감 열기 실패: ${err instanceof Error ? err.message : err}`),
       ),
     ),
+
+    vscode.commands.registerCommand("redmine.newIssue", async () => {
+      try {
+        const client = await requireClient();
+        const [projects, statuses, priorities] = await Promise.all([
+          client.listProjects(),
+          client.listStatuses(),
+          client.listPriorities(),
+        ]);
+        if (projects.length === 0) {
+          vscode.window.showWarningMessage("일감을 만들 수 있는 프로젝트 없음");
+          return;
+        }
+        NewIssuePanel.show({
+          projects,
+          statuses,
+          priorities,
+          defaultProjectId: projects[0].id,
+          loadProjectData: async (projectId) => {
+            const [trackers, assignees, categories] = await Promise.all([
+              client.listProjectTrackers(projectId),
+              client.listAssignees(projectId),
+              client.listCategories(projectId),
+            ]);
+            return { trackers, assignees, categories };
+          },
+          uploadFile: (filename, data) => client.uploadFile(filename, data),
+          onCreate: async (fields) => {
+            const created = await client.createIssue(fields);
+            refreshAll();
+            return created;
+          },
+        });
+      } catch (err) {
+        vscode.window.showErrorMessage(`새 일감 실패: ${err instanceof Error ? err.message : err}`);
+      }
+    }),
 
     vscode.commands.registerCommand("redmine.issuesForFile", async (uri?: vscode.Uri) => {
       try {

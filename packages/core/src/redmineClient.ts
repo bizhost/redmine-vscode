@@ -42,6 +42,24 @@ export interface UpdateIssueChanges {
   uploads?: Array<{ token: string; filename: string; contentType?: string }>;
 }
 
+export interface CreateIssueFields {
+  projectId: number;
+  subject: string;
+  description?: string;
+  trackerId?: number;
+  statusId?: number;
+  priorityId?: number;
+  assignedToId?: number;
+  categoryId?: number;
+  parentIssueId?: number;
+  doneRatio?: number;
+  startDate?: string;
+  dueDate?: string;
+  estimatedHours?: number;
+  isPrivate?: boolean;
+  uploads?: Array<{ token: string; filename: string; contentType?: string }>;
+}
+
 export class RedmineApiError extends Error {
   constructor(
     public readonly status: number,
@@ -106,6 +124,14 @@ export class RedmineClient {
     return data.trackers;
   }
 
+  /** 프로젝트에 활성화된 유형만 */
+  async listProjectTrackers(projectId: number): Promise<NamedRef[]> {
+    const data = await this.request<{ project: { trackers?: NamedRef[] } }>(
+      `/projects/${projectId}.json?include=trackers`,
+    );
+    return data.project.trackers ?? [];
+  }
+
   async listAssignees(projectId: number): Promise<NamedRef[]> {
     const data = await this.request<{ memberships: Array<{ user?: NamedRef }> }>(
       `/projects/${projectId}/memberships.json?limit=100`,
@@ -126,6 +152,37 @@ export class RedmineClient {
       `/search.json?${params}`,
     );
     return data.results.map(({ id, title }) => ({ id, title }));
+  }
+
+  async createIssue(fields: CreateIssueFields): Promise<Issue> {
+    const issue: Record<string, unknown> = {
+      project_id: fields.projectId,
+      subject: fields.subject,
+    };
+    if (fields.description !== undefined) issue.description = fields.description;
+    if (fields.trackerId !== undefined) issue.tracker_id = fields.trackerId;
+    if (fields.statusId !== undefined) issue.status_id = fields.statusId;
+    if (fields.priorityId !== undefined) issue.priority_id = fields.priorityId;
+    if (fields.assignedToId !== undefined) issue.assigned_to_id = fields.assignedToId;
+    if (fields.categoryId !== undefined) issue.category_id = fields.categoryId;
+    if (fields.parentIssueId !== undefined) issue.parent_issue_id = fields.parentIssueId;
+    if (fields.doneRatio !== undefined) issue.done_ratio = fields.doneRatio;
+    if (fields.startDate) issue.start_date = fields.startDate;
+    if (fields.dueDate) issue.due_date = fields.dueDate;
+    if (fields.estimatedHours !== undefined) issue.estimated_hours = fields.estimatedHours;
+    if (fields.isPrivate) issue.is_private = true;
+    if (fields.uploads?.length) {
+      issue.uploads = fields.uploads.map((u) => ({
+        token: u.token,
+        filename: u.filename,
+        ...(u.contentType ? { content_type: u.contentType } : {}),
+      }));
+    }
+    const data = await this.request<{ issue: Issue }>("/issues.json", {
+      method: "POST",
+      body: JSON.stringify({ issue }),
+    });
+    return data.issue;
   }
 
   /** 파일 업로드 → 첨부 토큰 (updateIssue uploads에 사용) */
@@ -196,8 +253,15 @@ export class RedmineClient {
 
     const res = await fetch(this.baseUrl + path, { ...init, headers });
     if (!res.ok) {
-      const hint = res.status === 401 ? " — API key를 확인하세요" : "";
-      throw new RedmineApiError(res.status, `Redmine API 오류 ${res.status}${hint}`);
+      let detail = res.status === 401 ? " — API key를 확인하세요" : "";
+      try {
+        // 422 등 검증 에러 본문 { errors: [...] } 노출
+        const body = (await res.json()) as { errors?: string[] };
+        if (body.errors?.length) detail = ` — ${body.errors.join(", ")}`;
+      } catch {
+        // JSON 아님 → 상태코드만
+      }
+      throw new RedmineApiError(res.status, `Redmine API 오류 ${res.status}${detail}`);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;

@@ -31,6 +31,7 @@ import { MyIssuesProvider } from "./myIssuesProvider";
 import { ProjectsProvider } from "./projectsProvider";
 import { IssueDetailPanel } from "./issueDetailPanel";
 import { NewIssuePanel } from "./newIssuePanel";
+import { SearchInputView } from "./searchInputView";
 
 const SECRET_KEY = "redmine.apiKey";
 
@@ -161,6 +162,13 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("redmineMyIssues", myIssues),
     vscode.window.registerTreeDataProvider("redmineProjects", projects),
+    vscode.window.registerWebviewViewProvider(
+      SearchInputView.viewId,
+      new SearchInputView((query) => {
+        myIssues.setFilter(query); // 내 담당 범위
+        projects.setFilter(query); // 전체 범위
+      }),
+    ),
 
     vscode.commands.registerCommand("redmine.refresh", refreshAll),
     vscode.commands.registerCommand("redmine.loadMoreMy", () => myIssues.loadMore()),

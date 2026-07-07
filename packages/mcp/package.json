@@ -1,6 +1,6 @@
 {
   "name": "@bizhost/redmine-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Redmine MCP 서버 — 일감 조회/상태변경/댓글/내보내기",
   "type": "module",
   "license": "MIT",

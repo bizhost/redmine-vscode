@@ -1,5 +1,5 @@
 {
-  "name": "redmine-tools",
+  "name": "redmine-vscode",
   "private": true,
   "workspaces": [
     "packages/*"

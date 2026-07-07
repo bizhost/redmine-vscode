@@ -1,6 +1,6 @@
-# redmine-tools
+# redmine-vscode
 
-Redmine 일감을 VS Code와 AI 양쪽에서 다루는 도구 모음.
+Redmine 일감을 VS Code와 AI 양쪽에서 다루는 도구 모음 (VS Code 확장 + MCP 서버).
 
 ## 팀원 설치 가이드
 
@@ -17,8 +17,8 @@ Redmine 일감을 VS Code와 AI 양쪽에서 다루는 도구 모음.
 ### 2. MCP 서버 (Claude Code)
 
 ```bash
-git clone git@github.com:bizhost/redmine-vscode.git redmine-tools
-cd redmine-tools
+git clone git@github.com:bizhost/redmine-vscode.git
+cd redmine-vscode
 npm install && npm run build
 claude mcp add redmine \
   -e REDMINE_URL=https://your-redmine.example.com \
@@ -35,7 +35,7 @@ Claude Code 등 AI 에이전트에 아래를 그대로 붙여넣으면 설치를
 ```text
 다음 순서로 Redmine 도구를 설치해줘.
 
-1. git@github.com:bizhost/redmine-vscode.git 를 ~/redmine-tools 에 clone (이미 있으면 pull)
+1. git@github.com:bizhost/redmine-vscode.git 를 ~/redmine-vscode 에 clone (이미 있으면 pull)
 2. 그 안에서 npm install && npm run build
 3. VS Code 확장 설치:
    - cd packages/extension && npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository
@@ -46,7 +46,7 @@ Claude Code 등 AI 에이전트에 아래를 그대로 붙여넣으면 설치를
      claude mcp add 명령을 알려주면 내가 직접 터미널에서 실행할게)
 5. 안내할 claude mcp add 명령 형식:
    claude mcp add redmine -e REDMINE_URL=<url> -e REDMINE_API_KEY=<key> \
-     -- node ~/redmine-tools/packages/mcp/dist/server.js
+     -- node ~/redmine-vscode/packages/mcp/dist/server.js
 6. 끝나면 VS Code 설정 방법 안내:
    - settings에서 redmine.url 입력
    - 명령 팔레트에서 "Redmine: Set API Key" 실행

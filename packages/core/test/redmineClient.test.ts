@@ -78,6 +78,21 @@ test("listIssues: 빈 목록 → []", async () => {
   assert.equal(page.totalCount, 0);
 });
 
+test("listIssues: subjectQuery → subject=~ 필터", async () => {
+  const calls = mockFetch(200, { issues: [], total_count: 0 });
+  await makeClient().listIssues({ subjectQuery: "PHP 버전업" });
+  const u = new URL(calls[0].url);
+  assert.equal(u.searchParams.get("subject"), "~PHP 버전업");
+});
+
+test("listIssues: issueId → issue_id 직접 조회", async () => {
+  const calls = mockFetch(200, { issues: [], total_count: 0 });
+  await makeClient().listIssues({ issueId: 123, statusId: "*", assignedToMe: false });
+  const u = new URL(calls[0].url);
+  assert.equal(u.searchParams.get("issue_id"), "123");
+  assert.equal(u.searchParams.get("status_id"), "*");
+});
+
 test("listIssues: offset 페이징", async () => {
   const calls = mockFetch(200, { issues: [], total_count: 123 });
   const page = await makeClient().listIssues({ offset: 50 });

@@ -14,6 +14,10 @@ export interface ListIssuesOptions {
   /** 숫자 프로젝트 id — 설정된 identifier보다 우선 */
   projectId?: number;
   offset?: number;
+  /** 제목 부분일치 검색 */
+  subjectQuery?: string;
+  /** 일감 번호 직접 조회 */
+  issueId?: number;
 }
 
 export interface IssuePage {
@@ -65,6 +69,8 @@ export class RedmineClient {
     const project = options.projectId ?? this.opts.projectIdentifier;
     if (project) params.set("project_id", String(project));
     if (options.assignedToMe ?? true) params.set("assigned_to_id", "me");
+    if (options.subjectQuery) params.set("subject", `~${options.subjectQuery}`);
+    if (options.issueId !== undefined) params.set("issue_id", String(options.issueId));
     const data = await this.request<{ issues: Issue[]; total_count?: number }>(
       `/issues.json?${params}`,
     );

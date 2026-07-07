@@ -144,6 +144,9 @@ export class IssueDetailPanel {
           this.postFiles();
         } else if (msg.command === "open") {
           void vscode.commands.executeCommand("redmine.openIssue", Number(msg.id));
+        } else if (msg.command === "refresh") {
+          // 전체 재조회 + 재렌더 (openIssue가 같은 탭 재사용)
+          void vscode.commands.executeCommand("redmine.openIssue", this.ctx.issue.id);
         } else if (msg.command === "pasteImage") {
           // 클립보드 이미지 → base64로 수신 → 첨부 대기열
           this.pendingUploads.push({
@@ -262,7 +265,7 @@ export class IssueDetailPanel {
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: .7em; margin-bottom: .8em; }
   .grid label, .desclabel { display: flex; flex-direction: column; gap: .25em; font-size: .85em; color: var(--vscode-descriptionForeground); }
   textarea { width: 100%; resize: vertical; }
-  #description { min-height: 8em; }
+  #description { min-height: 250px; }
   #notes { min-height: 5em; }
   .commentform { margin-top: .6em; }
   .row { display: flex; gap: 1em; align-items: center; margin-top: .5em; }
@@ -317,7 +320,10 @@ export class IssueDetailPanel {
   <label class="desclabel">설명
     <textarea id="description">${esc(issue.description)}</textarea>
   </label>
-  <div class="row"><button onclick="save(this)">저장</button></div>
+  <div class="row">
+    <button onclick="save(this)">저장</button>
+    <button onclick="vscode.postMessage({command:'refresh'})" title="일감 다시 불러오기">↻ 새로고침</button>
+  </div>
 
   ${children ? `<h2>하위 일감</h2><ul>${children}</ul>` : ""}
   ${relations ? `<h2>연결된 일감</h2><ul>${relations}</ul>` : ""}

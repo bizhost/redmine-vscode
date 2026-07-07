@@ -1,17 +1,16 @@
 import * as vscode from "vscode";
 import type { Issue, RedmineClient } from "@redmine-tools/core";
-import { PAGE_SIZE, errorItem, issueItem, moreItem, setupHintItem } from "./issueNodes";
-
-class ProjectGroupNode extends vscode.TreeItem {
-  constructor(
-    name: string,
-    readonly issues: Issue[],
-  ) {
-    super(name, vscode.TreeItemCollapsibleState.Expanded);
-    this.description = String(issues.length);
-    this.iconPath = new vscode.ThemeIcon("project");
-  }
-}
+import {
+  PAGE_SIZE,
+  ProjectGroupNode,
+  errorItem,
+  filterHeaderItem,
+  groupByProject,
+  issueItem,
+  moreItem,
+  searchOpts,
+  setupHintItem,
+} from "./issueNodes";
 
 export class MyIssuesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<void>();
@@ -20,6 +19,7 @@ export class MyIssuesProvider implements vscode.TreeDataProvider<vscode.TreeItem
   private issues: Issue[] = [];
   private total = 0;
   private loaded = false;
+  private filter: string | undefined;
 
   constructor(private readonly getClient: () => Promise<RedmineClient | undefined>) {}
 
@@ -29,10 +29,28 @@ export class MyIssuesProvider implements vscode.TreeDataProvider<vscode.TreeItem
     this._onDidChangeTreeData.fire();
   }
 
+  getFilter(): string | undefined {
+    return this.filter;
+  }
+
+  setFilter(query: string | undefined): void {
+    this.filter = query?.trim() || undefined;
+    this.refresh();
+  }
+
+  private listOpts(offset: number) {
+    return {
+      assignedToMe: true,
+      limit: PAGE_SIZE,
+      offset,
+      ...(this.filter ? searchOpts(this.filter) : {}),
+    };
+  }
+
   async loadMore(): Promise<void> {
     const client = await this.getClient();
     if (!client) return;
-    const page = await client.listIssues({ assignedToMe: true, offset: this.issues.length });
+    const page = await client.listIssues(this.listOpts(this.issues.length));
     this.issues.push(...page.issues);
     this.total = page.totalCount;
     this._onDidChangeTreeData.fire();
@@ -52,24 +70,18 @@ export class MyIssuesProvider implements vscode.TreeDataProvider<vscode.TreeItem
 
     try {
       if (!this.loaded) {
-        const page = await client.listIssues({ assignedToMe: true, limit: PAGE_SIZE });
+        const page = await client.listIssues(this.listOpts(0));
         this.issues = page.issues;
         this.total = page.totalCount;
         this.loaded = true;
       }
-      if (this.issues.length === 0) return [new vscode.TreeItem("일감 없음")];
-
-      // 프로젝트별 그룹 — 일감 있는 프로젝트만 생김
-      const groups = new Map<string, Issue[]>();
-      for (const issue of this.issues) {
-        const name = issue.project?.name ?? "(프로젝트 없음)";
-        const list = groups.get(name);
-        if (list) list.push(issue);
-        else groups.set(name, [issue]);
+      const items: vscode.TreeItem[] = [];
+      if (this.filter) items.push(filterHeaderItem(this.filter, "redmine.searchMyIssues"));
+      if (this.issues.length === 0) {
+        items.push(new vscode.TreeItem(this.filter ? "검색 결과 없음" : "일감 없음"));
+        return items;
       }
-      const items: vscode.TreeItem[] = [...groups.entries()].map(
-        ([name, issues]) => new ProjectGroupNode(name, issues),
-      );
+      items.push(...groupByProject(this.issues));
       if (this.issues.length < this.total) {
         items.push(moreItem("redmine.loadMoreMy", this.issues.length, this.total));
       }

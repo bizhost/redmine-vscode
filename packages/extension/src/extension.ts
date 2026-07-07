@@ -29,7 +29,6 @@ async function issueIdsForFile(fileUri: vscode.Uri): Promise<number[]> {
 }
 import { MyIssuesProvider } from "./myIssuesProvider";
 import { ProjectsProvider } from "./projectsProvider";
-import { SearchViewProvider } from "./searchViewProvider";
 import { IssueDetailPanel } from "./issueDetailPanel";
 
 const SECRET_KEY = "redmine.apiKey";
@@ -143,18 +142,38 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   };
 
+  // pane 내부 검색 — InputBox, 비우면 해제
+  const promptFilter = async (
+    provider: MyIssuesProvider | ProjectsProvider,
+    placeHolder: string,
+  ): Promise<void> => {
+    const value = await vscode.window.showInputBox({
+      prompt: "제목 검색 또는 #일감번호 (비우면 검색 해제)",
+      placeHolder,
+      value: provider.getFilter() ?? "",
+      ignoreFocusOut: true,
+    });
+    if (value === undefined) return; // ESC → 유지
+    provider.setFilter(value);
+  };
+
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider("redmineMyIssues", myIssues),
     vscode.window.registerTreeDataProvider("redmineProjects", projects),
-    vscode.window.registerWebviewViewProvider(
-      SearchViewProvider.viewId,
-      new SearchViewProvider(getClient, openIssue),
-    ),
 
     vscode.commands.registerCommand("redmine.refresh", refreshAll),
     vscode.commands.registerCommand("redmine.loadMoreMy", () => myIssues.loadMore()),
     vscode.commands.registerCommand("redmine.loadMoreProject", (projectId: number) =>
       projects.loadMore(projectId),
+    ),
+    vscode.commands.registerCommand("redmine.loadMoreProjectsSearch", () =>
+      projects.loadMoreSearch(),
+    ),
+    vscode.commands.registerCommand("redmine.searchMyIssues", () =>
+      promptFilter(myIssues, "내 일감에서 검색"),
+    ),
+    vscode.commands.registerCommand("redmine.searchProjects", () =>
+      promptFilter(projects, "전체 프로젝트에서 검색"),
     ),
 
     vscode.commands.registerCommand("redmine.setApiKey", async () => {
@@ -174,10 +193,6 @@ export function activate(context: vscode.ExtensionContext): void {
       openIssue(id).catch((err) =>
         vscode.window.showErrorMessage(`일감 열기 실패: ${err instanceof Error ? err.message : err}`),
       ),
-    ),
-
-    vscode.commands.registerCommand("redmine.search", () =>
-      vscode.commands.executeCommand("redmineSearch.focus"),
     ),
 
     vscode.commands.registerCommand("redmine.issuesForFile", async (uri?: vscode.Uri) => {

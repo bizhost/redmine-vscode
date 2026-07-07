@@ -1,6 +1,16 @@
 import * as vscode from "vscode";
 import type { Issue, RedmineClient } from "@redmine-tools/core";
-import { PAGE_SIZE, errorItem, issueItem, moreItem, setupHintItem } from "./issueNodes";
+import {
+  PAGE_SIZE,
+  ProjectGroupNode,
+  errorItem,
+  filterHeaderItem,
+  groupByProject,
+  issueItem,
+  moreItem,
+  searchOpts,
+  setupHintItem,
+} from "./issueNodes";
 
 class ProjectNode extends vscode.TreeItem {
   constructor(
@@ -22,12 +32,34 @@ export class ProjectsProvider implements vscode.TreeDataProvider<vscode.TreeItem
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   private pages = new Map<number, PageState>();
+  private filter: string | undefined;
+  private searchState: PageState | undefined;
 
   constructor(private readonly getClient: () => Promise<RedmineClient | undefined>) {}
 
   refresh(): void {
     this.pages.clear();
+    this.searchState = undefined;
     this._onDidChangeTreeData.fire();
+  }
+
+  getFilter(): string | undefined {
+    return this.filter;
+  }
+
+  setFilter(query: string | undefined): void {
+    this.filter = query?.trim() || undefined;
+    this.refresh();
+  }
+
+  private searchListOpts(offset: number) {
+    return {
+      assignedToMe: false, // 프로젝트 pane은 담당 무관
+      limit: PAGE_SIZE,
+      offset,
+      projectId: 0, // falsy → 설정된 projectIdentifier 무시, 전 프로젝트 검색
+      ...searchOpts(this.filter ?? ""),
+    };
   }
 
   async loadMore(projectId: number): Promise<void> {
@@ -44,6 +76,15 @@ export class ProjectsProvider implements vscode.TreeDataProvider<vscode.TreeItem
     this._onDidChangeTreeData.fire();
   }
 
+  async loadMoreSearch(): Promise<void> {
+    const client = await this.getClient();
+    if (!client || !this.searchState) return;
+    const page = await client.listIssues(this.searchListOpts(this.searchState.issues.length));
+    this.searchState.issues.push(...page.issues);
+    this.searchState.total = page.totalCount;
+    this._onDidChangeTreeData.fire();
+  }
+
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
   }
@@ -54,8 +95,13 @@ export class ProjectsProvider implements vscode.TreeDataProvider<vscode.TreeItem
 
     try {
       if (!element) {
+        if (this.filter) return this.searchRoot(client);
         const projects = await client.listProjects();
         return projects.map((p) => new ProjectNode(p.id, p.name));
+      }
+
+      if (element instanceof ProjectGroupNode) {
+        return element.issues.map(issueItem);
       }
 
       if (element instanceof ProjectNode) {
@@ -82,5 +128,24 @@ export class ProjectsProvider implements vscode.TreeDataProvider<vscode.TreeItem
     } catch (err) {
       return [errorItem(err)];
     }
+  }
+
+  /** 검색 모드 루트: 전 프로젝트 대상 결과를 프로젝트별 그룹으로 */
+  private async searchRoot(client: RedmineClient): Promise<vscode.TreeItem[]> {
+    if (!this.searchState) {
+      const page = await client.listIssues(this.searchListOpts(0));
+      this.searchState = { issues: page.issues, total: page.totalCount };
+    }
+    const state = this.searchState;
+    const items: vscode.TreeItem[] = [filterHeaderItem(this.filter ?? "", "redmine.searchProjects")];
+    if (state.issues.length === 0) {
+      items.push(new vscode.TreeItem("검색 결과 없음"));
+      return items;
+    }
+    items.push(...groupByProject(state.issues));
+    if (state.issues.length < state.total) {
+      items.push(moreItem("redmine.loadMoreProjectsSearch", state.issues.length, state.total));
+    }
+    return items;
   }
 }

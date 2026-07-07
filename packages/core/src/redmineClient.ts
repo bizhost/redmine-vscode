@@ -16,6 +16,8 @@ export interface ListIssuesOptions {
 export interface UpdateIssueChanges {
   statusId?: number;
   notes?: string;
+  doneRatio?: number;
+  priorityId?: number;
 }
 
 export class RedmineApiError extends Error {
@@ -59,10 +61,19 @@ export class RedmineClient {
     return data.issue_statuses;
   }
 
+  async listPriorities(): Promise<IssueStatus[]> {
+    const data = await this.request<{ issue_priorities: IssueStatus[] }>(
+      "/enumerations/issue_priorities.json",
+    );
+    return data.issue_priorities;
+  }
+
   async updateIssue(id: number, changes: UpdateIssueChanges): Promise<void> {
     const issue: Record<string, unknown> = {};
     if (changes.statusId !== undefined) issue.status_id = changes.statusId;
     if (changes.notes !== undefined) issue.notes = changes.notes;
+    if (changes.doneRatio !== undefined) issue.done_ratio = changes.doneRatio;
+    if (changes.priorityId !== undefined) issue.priority_id = changes.priorityId;
     await this.request(`/issues/${id}.json`, {
       method: "PUT",
       body: JSON.stringify({ issue }),

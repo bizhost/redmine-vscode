@@ -44,14 +44,6 @@
       {
         "command": "redmine.openIssue",
         "title": "Redmine: 일감 열기"
-      },
-      {
-        "command": "redmine.changeStatus",
-        "title": "Redmine: 상태 변경"
-      },
-      {
-        "command": "redmine.addComment",
-        "title": "Redmine: 댓글 작성"
       }
     ],
     "menus": {

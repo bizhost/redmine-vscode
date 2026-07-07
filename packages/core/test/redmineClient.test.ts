@@ -108,6 +108,24 @@ test("updateIssue: PUT body 형태", async () => {
   assert.equal(headers["Content-Type"], "application/json");
 });
 
+test("updateIssue: 진행률/우선순위 포함", async () => {
+  const calls = mockFetch(204);
+  await makeClient().updateIssue(5, { doneRatio: 70, priorityId: 2 });
+
+  assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+    issue: { done_ratio: 70, priority_id: 2 },
+  });
+});
+
+test("listPriorities: 우선순위 목록", async () => {
+  const calls = mockFetch(200, { issue_priorities: [{ id: 1, name: "낮음" }, { id: 2, name: "보통" }] });
+  const priorities = await makeClient().listPriorities();
+
+  const u = new URL(calls[0].url);
+  assert.equal(u.pathname, "/enumerations/issue_priorities.json");
+  assert.equal(priorities[1].name, "보통");
+});
+
 test("401 → RedmineApiError(status=401)", async () => {
   mockFetch(401, { errors: ["Unauthorized"] });
   await assert.rejects(

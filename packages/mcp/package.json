@@ -7,7 +7,7 @@
     "redmine-mcp": "dist/server.js"
   },
   "scripts": {
-    "build": "node esbuild.js",
+    "build": "node esbuild.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

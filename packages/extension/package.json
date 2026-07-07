@@ -2,7 +2,7 @@
   "name": "redmine-vscode",
   "displayName": "Redmine Issues",
   "description": "Redmine 일감 목록/상세/상태변경/댓글",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "publisher": "konat",
   "engines": {
@@ -66,6 +66,10 @@
       {
         "command": "redmine.loadMoreProject",
         "title": "Redmine: 더 보기 (프로젝트)"
+      },
+      {
+        "command": "redmine.issuesForFile",
+        "title": "Redmine: 이 파일 관련 일감"
       }
     ],
     "menus": {
@@ -79,6 +83,19 @@
           "command": "redmine.search",
           "when": "view == redmineMyIssues || view == redmineProjects",
           "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "redmine.issuesForFile",
+          "when": "!explorerResourceIsFolder",
+          "group": "redmine"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "redmine.issuesForFile",
+          "group": "redmine"
         }
       ],
       "commandPalette": [

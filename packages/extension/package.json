@@ -1,15 +1,26 @@
 {
   "name": "redmine-vscode",
   "displayName": "Redmine Issues",
-  "description": "Redmine 일감 목록/상세/상태변경/댓글",
+  "description": "Redmine 일감 관리 — 목록/검색/상세/편집/댓글/첨부/다운로드",
   "version": "0.14.2",
-  "private": true,
-  "publisher": "konat",
+  "publisher": "bizhost",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bizhost/redmine-vscode"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "redmine",
+    "issue",
+    "일감",
+    "이슈",
+    "project management"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [],

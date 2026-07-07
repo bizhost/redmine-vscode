@@ -78,6 +78,11 @@
         "title": "Redmine: 일감 열기"
       },
       {
+        "command": "redmine.openIssueInBrowser",
+        "title": "Redmine: 브라우저에서 열기",
+        "icon": "$(link-external)"
+      },
+      {
         "command": "redmine.issuesForFile",
         "title": "Redmine: 이 파일 관련 일감"
       },
@@ -111,6 +116,10 @@
       ],
       "webview/context": [
         {
+          "command": "redmine.openIssueInBrowser",
+          "when": "webviewSection == 'issue'"
+        },
+        {
           "command": "redmine.downloadIssues",
           "when": "webviewSection == 'issue'"
         }
@@ -131,6 +140,10 @@
       "commandPalette": [
         {
           "command": "redmine.openIssue",
+          "when": "false"
+        },
+        {
+          "command": "redmine.openIssueInBrowser",
           "when": "false"
         },
         {

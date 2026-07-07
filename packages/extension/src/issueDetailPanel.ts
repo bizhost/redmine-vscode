@@ -147,6 +147,10 @@ export class IssueDetailPanel {
         } else if (msg.command === "refresh") {
           // 전체 재조회 + 재렌더 (openIssue가 같은 탭 재사용)
           void vscode.commands.executeCommand("redmine.openIssue", this.ctx.issue.id);
+        } else if (msg.command === "openInBrowser") {
+          void vscode.commands.executeCommand("redmine.openIssueInBrowser", {
+            issueId: this.ctx.issue.id,
+          });
         } else if (msg.command === "pasteImage") {
           // 클립보드 이미지 → base64로 수신 → 첨부 대기열
           this.pendingUploads.push({
@@ -328,6 +332,7 @@ export class IssueDetailPanel {
   <div class="row">
     <button onclick="save(this)">저장</button>
     <button onclick="vscode.postMessage({command:'refresh'})" title="일감 다시 불러오기">↻ 새로고침</button>
+    <button onclick="vscode.postMessage({command:'openInBrowser'})" title="브라우저에서 열기">↗ 브라우저로 보기</button>
   </div>
 
   ${children ? `<h2>하위 일감</h2><ul>${children}</ul>` : ""}

@@ -176,6 +176,20 @@ export function activate(context: vscode.ExtensionContext): void {
       ),
     ),
 
+    vscode.commands.registerCommand(
+      "redmine.openIssueInBrowser",
+      (ctx?: { issueId?: number }) => {
+        const id = Number(ctx?.issueId);
+        if (!Number.isInteger(id)) return;
+        const url = vscode.workspace.getConfiguration("redmine").get<string>("url", "").trim();
+        if (!url) {
+          vscode.window.showErrorMessage("Redmine URL 미설정: settings에서 redmine.url 설정");
+          return;
+        }
+        void vscode.env.openExternal(vscode.Uri.parse(`${url.replace(/\/+$/, "")}/issues/${id}`));
+      },
+    ),
+
     vscode.commands.registerCommand("redmine.newIssue", async () => {
       try {
         const client = await requireClient();

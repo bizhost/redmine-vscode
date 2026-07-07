@@ -26,8 +26,21 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
             void view.webview.postMessage({ command: "error", message: "설정 필요: URL/API Key" });
             return;
           }
-          const results = await client.searchIssues(query);
-          void view.webview.postMessage({ command: "results", items: results });
+          // "#123"/"123" → 번호 직접 조회 + 텍스트 검색 병행, 직접 히트 우선
+          const idMatch = query.match(/^#?(\d+)$/);
+          const [direct, results] = await Promise.all([
+            idMatch
+              ? client
+                  .getIssue(Number(idMatch[1]))
+                  .then((i) => ({ id: i.id, title: `#${i.id} ${i.subject}` }))
+                  .catch(() => undefined) // 없는 번호 → 무시
+              : Promise.resolve(undefined),
+            client.searchIssues(idMatch ? idMatch[1] : query),
+          ]);
+          const items = direct
+            ? [direct, ...results.filter((r) => r.id !== direct.id)]
+            : results;
+          void view.webview.postMessage({ command: "results", items });
         } catch (err) {
           void view.webview.postMessage({
             command: "error",

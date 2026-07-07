@@ -2,6 +2,17 @@ import * as vscode from "vscode";
 import type { Issue, RedmineClient } from "@redmine-tools/core";
 import { PAGE_SIZE, errorItem, issueItem, moreItem, setupHintItem } from "./issueNodes";
 
+class ProjectGroupNode extends vscode.TreeItem {
+  constructor(
+    name: string,
+    readonly issues: Issue[],
+  ) {
+    super(name, vscode.TreeItemCollapsibleState.Expanded);
+    this.description = String(issues.length);
+    this.iconPath = new vscode.ThemeIcon("project");
+  }
+}
+
 export class MyIssuesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
   private _onDidChangeTreeData = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
@@ -32,7 +43,10 @@ export class MyIssuesProvider implements vscode.TreeDataProvider<vscode.TreeItem
   }
 
   async getChildren(element?: vscode.TreeItem): Promise<vscode.TreeItem[]> {
-    if (element) return [];
+    if (element) {
+      return element instanceof ProjectGroupNode ? element.issues.map(issueItem) : [];
+    }
+
     const client = await this.getClient();
     if (!client) return [setupHintItem()];
 
@@ -44,7 +58,18 @@ export class MyIssuesProvider implements vscode.TreeDataProvider<vscode.TreeItem
         this.loaded = true;
       }
       if (this.issues.length === 0) return [new vscode.TreeItem("일감 없음")];
-      const items = this.issues.map(issueItem);
+
+      // 프로젝트별 그룹 — 일감 있는 프로젝트만 생김
+      const groups = new Map<string, Issue[]>();
+      for (const issue of this.issues) {
+        const name = issue.project?.name ?? "(프로젝트 없음)";
+        const list = groups.get(name);
+        if (list) list.push(issue);
+        else groups.set(name, [issue]);
+      }
+      const items: vscode.TreeItem[] = [...groups.entries()].map(
+        ([name, issues]) => new ProjectGroupNode(name, issues),
+      );
       if (this.issues.length < this.total) {
         items.push(moreItem("redmine.loadMoreMy", this.issues.length, this.total));
       }

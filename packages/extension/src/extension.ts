@@ -231,11 +231,19 @@ export function activate(context: vscode.ExtensionContext): void {
             .getConfiguration("redmine")
             .get<string>("downloadPath", "")
             .trim();
+          const expanded = configured.replace(/^~(?=$|\/)/, os.homedir());
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          // 상대경로 → 워크스페이스 루트 기준. 워크스페이스 없으면 위치 선택으로 폴백
+          const resolved = !expanded
+            ? undefined
+            : path.isAbsolute(expanded)
+              ? expanded
+              : workspaceRoot
+                ? path.join(workspaceRoot, expanded)
+                : undefined;
           let base: vscode.Uri;
-          if (configured) {
-            base = vscode.Uri.file(
-              path.resolve(configured.replace(/^~(?=$|\/)/, os.homedir())),
-            );
+          if (resolved) {
+            base = vscode.Uri.file(resolved);
             await vscode.workspace.fs.createDirectory(base); // 없으면 생성
           } else {
             const picked = await vscode.window.showOpenDialog({

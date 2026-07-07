@@ -2,7 +2,7 @@
   "name": "redmine-vscode",
   "displayName": "Redmine Issues",
   "description": "Redmine 일감 목록/상세/상태변경/댓글",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "publisher": "konat",
   "engines": {
@@ -25,6 +25,11 @@
     },
     "views": {
       "redmine": [
+        {
+          "id": "redmineSearch",
+          "name": "검색",
+          "type": "webview"
+        },
         {
           "id": "redmineMyIssues",
           "name": "내 일감"

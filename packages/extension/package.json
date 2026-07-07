@@ -74,7 +74,7 @@
         "redmine.projectIdentifier": {
           "type": "string",
           "default": "",
-          "description": "프로젝트 identifier"
+          "description": "프로젝트 identifier (선택, 생략 시 전체 프로젝트)"
         },
         "redmine.assignedToMe": {
           "type": "boolean",

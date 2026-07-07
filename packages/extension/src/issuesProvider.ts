@@ -18,7 +18,7 @@ export class IssuesProvider implements vscode.TreeDataProvider<vscode.TreeItem> 
   async getChildren(): Promise<vscode.TreeItem[]> {
     const client = await this.getClient();
     if (!client) {
-      const item = new vscode.TreeItem("설정 필요: URL/프로젝트/API Key");
+      const item = new vscode.TreeItem("설정 필요: URL/API Key");
       item.command = {
         command: "redmine.setApiKey",
         title: "Redmine: Set API Key",

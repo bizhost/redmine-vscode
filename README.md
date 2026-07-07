@@ -27,6 +27,8 @@ claude mcp add redmine \
   -- node /home/konat/project/redmine/packages/mcp/dist/server.js
 ```
 
+`REDMINE_PROJECT`는 선택 — 생략 시 전체 프로젝트에서 내 담당 이슈 조회.
+
 툴: `list_issues`, `get_issue`, `update_issue_status`, `add_comment`, `list_statuses`
 
 ## VS Code 확장 실행
@@ -35,7 +37,7 @@ claude mcp add redmine \
 2. F5 (Run Redmine Extension) → Extension Development Host 실행
 3. Host 창 settings에서 설정:
    - `redmine.url` — 서버 URL
-   - `redmine.projectIdentifier` — 프로젝트 identifier
+   - `redmine.projectIdentifier` — 프로젝트 identifier (선택, 생략 시 전체 프로젝트)
    - `redmine.assignedToMe` — 내 담당만 (기본 true)
 4. 명령 팔레트 → `Redmine: Set API Key` 로 키 입력 (SecretStorage 저장, 파일에 안 남음)
 5. 활동바 Redmine 아이콘 → 일감 목록 → 클릭 시 상세

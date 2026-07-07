@@ -57,6 +57,16 @@ test("listIssues: 옵션 override (담당자 해제, 상태/limit 변경)", asyn
   assert.equal(u.searchParams.get("limit"), "10");
 });
 
+test("listIssues: projectIdentifier 없으면 project_id 생략 (전체 프로젝트)", async () => {
+  const calls = mockFetch(200, { issues: [] });
+  const client = new RedmineClient({ url: "https://redmine.example.com", apiKey: "k" });
+  await client.listIssues();
+
+  const u = new URL(calls[0].url);
+  assert.equal(u.searchParams.get("project_id"), null);
+  assert.equal(u.searchParams.get("assigned_to_id"), "me");
+});
+
 test("listIssues: 빈 목록 → []", async () => {
   mockFetch(200, { issues: [] });
   assert.deepEqual(await makeClient().listIssues(), []);

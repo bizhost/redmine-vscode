@@ -11,14 +11,14 @@ export function activate(context: vscode.ExtensionContext): void {
     const url = config.get<string>("url", "");
     const projectIdentifier = config.get<string>("projectIdentifier", "");
     const apiKey = await context.secrets.get(SECRET_KEY);
-    if (!url || !projectIdentifier || !apiKey) return undefined;
-    return new RedmineClient({ url, apiKey, projectIdentifier });
+    if (!url || !apiKey) return undefined;
+    return new RedmineClient({ url, apiKey, projectIdentifier: projectIdentifier || undefined });
   };
 
   const requireClient = async (): Promise<RedmineClient> => {
     const client = await getClient();
     if (!client) {
-      throw new Error("Redmine 설정 필요: settings에서 url/projectIdentifier, 'Redmine: Set API Key' 실행");
+      throw new Error("Redmine 설정 필요: settings에서 url 설정 후 'Redmine: Set API Key' 실행");
     }
     return client;
   };

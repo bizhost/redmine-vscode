@@ -3,7 +3,8 @@ import type { Issue, IssueStatus } from "./types.js";
 export interface RedmineClientOptions {
   url: string;
   apiKey: string;
-  projectIdentifier: string;
+  /** 생략 시 전체 프로젝트 대상 */
+  projectIdentifier?: string;
 }
 
 export interface ListIssuesOptions {
@@ -36,11 +37,11 @@ export class RedmineClient {
 
   async listIssues(options: ListIssuesOptions = {}): Promise<Issue[]> {
     const params = new URLSearchParams({
-      project_id: this.opts.projectIdentifier,
       status_id: options.statusId ?? "open",
       sort: "updated_on:desc",
       limit: String(options.limit ?? 50),
     });
+    if (this.opts.projectIdentifier) params.set("project_id", this.opts.projectIdentifier);
     if (options.assignedToMe ?? true) params.set("assigned_to_id", "me");
     const data = await this.request<{ issues: Issue[] }>(`/issues.json?${params}`);
     return data.issues;

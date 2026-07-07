@@ -6,7 +6,7 @@ import { RedmineClient, type Issue } from "@redmine-tools/core";
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
-    console.error(`환경변수 ${name} 필요 (REDMINE_URL, REDMINE_API_KEY, REDMINE_PROJECT)`);
+    console.error(`환경변수 ${name} 필요 (REDMINE_URL, REDMINE_API_KEY)`);
     process.exit(1);
   }
   return value;
@@ -15,7 +15,7 @@ function requireEnv(name: string): string {
 const client = new RedmineClient({
   url: requireEnv("REDMINE_URL"),
   apiKey: requireEnv("REDMINE_API_KEY"),
-  projectIdentifier: requireEnv("REDMINE_PROJECT"),
+  projectIdentifier: process.env.REDMINE_PROJECT, // 생략 시 전체 프로젝트
 });
 
 const server = new McpServer({ name: "redmine-mcp", version: "0.1.0" });
@@ -44,7 +44,7 @@ server.registerTool(
   "list_issues",
   {
     description:
-      "Redmine 일감 목록 조회. 기본: 설정된 프로젝트에서 내게 할당된 open 이슈, 최신순.",
+      "Redmine 일감 목록 조회. 기본: 내게 할당된 open 이슈, 최신순. REDMINE_PROJECT 설정 시 해당 프로젝트로 한정.",
     inputSchema: {
       assignedToMe: z.boolean().optional().describe("false면 프로젝트 전체 이슈 (기본 true)"),
       statusId: z.string().optional().describe("open | closed | * | 상태 숫자 id (기본 open)"),

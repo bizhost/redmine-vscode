@@ -126,6 +126,13 @@ export class IssueDetailPanel {
         } else if (msg.command === "removeFile") {
           this.pendingUploads.splice(Number(msg.index), 1);
           this.postFiles();
+        } else if (msg.command === "pasteImage") {
+          // 클립보드 이미지 → base64로 수신 → 첨부 대기열
+          this.pendingUploads.push({
+            name: String(msg.name),
+            data: new Uint8Array(Buffer.from(String(msg.base64), "base64")),
+          });
+          this.postFiles();
         }
       } catch (err) {
         this.pendingFlash = undefined;
@@ -300,6 +307,27 @@ export class IssueDetailPanel {
       });
     }
     renderFiles(${JSON.stringify(this.pendingUploads.map((f) => f.name)).replace(/</g, "\\u003c")});
+    document.getElementById("notes").addEventListener("paste", (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (const item of items) {
+        if (!item.type.startsWith("image/")) continue;
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+        const ext = (item.type.split("/")[1] || "png").replace("jpeg", "jpg").split("+")[0];
+        const ts = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+        const reader = new FileReader();
+        reader.onload = () => {
+          vscode.postMessage({
+            command: "pasteImage",
+            name: "paste-" + ts + "." + ext,
+            base64: String(reader.result).split(",")[1],
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
     window.addEventListener("message", (e) => {
       if (e.data.command === "idle") {
         document.querySelectorAll("button").forEach((b) => { b.classList.remove("busy"); b.disabled = false; });

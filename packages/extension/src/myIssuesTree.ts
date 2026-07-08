@@ -4,6 +4,7 @@ import {
   GroupNode,
   IssueNode,
   MoreNode,
+  TodayTimeNode,
   PAGE_SIZE,
   closedStatusIds,
   errText,
@@ -13,6 +14,7 @@ import {
   setContext,
   type RedmineNode,
 } from "./treeSupport";
+import { ymd } from "./panelData";
 
 type GroupBy = "project" | "status" | "none";
 
@@ -26,6 +28,8 @@ export class MyIssuesTree implements vscode.TreeDataProvider<RedmineNode> {
   private total = 0;
   private loaded = false;
   private closedIds = new Set<number>();
+  // 오늘 내 소요시간 캐시. null = 조회 실패(노드 생략). {hours,count} = 조회 성공(0건 포함).
+  private todayTime: { hours: number; count: number } | null = null;
 
   constructor(private readonly getClient: () => Promise<RedmineClient | undefined>) {}
 
@@ -37,6 +41,12 @@ export class MyIssuesTree implements vscode.TreeDataProvider<RedmineNode> {
     return vscode.workspace
       .getConfiguration("redmine")
       .get<GroupBy>("views.myIssues.groupBy", "project");
+  }
+
+  private get showTodayTime(): boolean {
+    return vscode.workspace
+      .getConfiguration("redmine")
+      .get<boolean>("sidebar.showTodayTime", true);
   }
 
   refresh(): void {
@@ -75,7 +85,7 @@ export class MyIssuesTree implements vscode.TreeDataProvider<RedmineNode> {
 
   private async rootChildren(): Promise<RedmineNode[]> {
     if (!(await this.ensureLoaded())) return [];
-    if (this.issues.length === 0) return []; // viewsWelcome ③ (일감 없음)
+    if (this.issues.length === 0) return []; // viewsWelcome ③ (일감 없음) — 시간 노드도 생략(빈 상태 우선)
     const gb = this.groupBy;
     const nodes: RedmineNode[] =
       gb === "none"
@@ -85,6 +95,9 @@ export class MyIssuesTree implements vscode.TreeDataProvider<RedmineNode> {
           );
     if (this.issues.length < this.total) {
       nodes.push(new MoreNode("redmine.myIssues.more", [], this.issues.length, this.total));
+    }
+    if (this.showTodayTime && this.todayTime) {
+      nodes.unshift(new TodayTimeNode(this.todayTime.hours, this.todayTime.count));
     }
     return nodes;
   }
@@ -122,14 +135,20 @@ export class MyIssuesTree implements vscode.TreeDataProvider<RedmineNode> {
     }
     setContext("redmine:loading", true);
     if (this.view) this.view.message = "일감을 불러오는 중…";
+    const today = ymd(new Date());
     try {
-      const [page, statuses] = await Promise.all([
+      const [page, statuses, timeRes] = await Promise.all([
         client.listIssues({ assignedToMe: true, limit: PAGE_SIZE, offset: 0 }),
         client.listStatuses(),
+        // 실패해도 트리 로드는 계속 — 노드만 생략(null)
+        client.listTimeEntries({ from: today, to: today, userId: "me" }).catch(() => null),
       ]);
       this.issues = page.issues;
       this.total = page.totalCount;
       this.closedIds = closedStatusIds(statuses);
+      this.todayTime = timeRes
+        ? { hours: timeRes.entries.reduce((s, e) => s + (e.hours || 0), 0), count: timeRes.entries.length }
+        : null;
       this.loaded = true;
       reportAuthSuccess();
       setContext("redmine:loadError", false);

@@ -57,6 +57,11 @@ export function registerTreeSetupCommands(d: CommandDeps): vscode.Disposable[] {
     }),
     vscode.commands.registerCommand("redmine.refreshPanel", () => panel.refresh()),
     vscode.commands.registerCommand("redmine.openPanel", () => panel.popout()),
+    vscode.commands.registerCommand("redmine.openPanelTime", async () => {
+      // 하단 패널 웹뷰 노출(reveal) 후 소요시간 탭으로 전환 (부팅 전이면 showView가 대기 후 flush)
+      await vscode.commands.executeCommand("redminePanel.focus");
+      panel.showView("time");
+    }),
 
     vscode.commands.registerCommand("redmine.searchMyIssues", () => searchAndOpen(true, false)),
     vscode.commands.registerCommand("redmine.searchProjects", () => searchAndOpen(false, true)),

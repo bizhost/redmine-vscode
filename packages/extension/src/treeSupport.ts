@@ -92,7 +92,36 @@ export class MoreNode extends vscode.TreeItem {
   }
 }
 
-export type RedmineNode = IssueNode | GroupNode | ProjectNode | MoreNode;
+// 시간(h) → 반올림 분 → "2h 30m"/"45m". 0분은 "0m"(0건은 노드 라벨에서 별도 처리).
+function fmtDuration(hours: number): string {
+  const mins = Math.round(hours * 60);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+// 트리 최상단 가상 노드 — 오늘 내 소요시간 합계. 클릭 → 하단 패널 소요시간 탭.
+export class TodayTimeNode extends vscode.TreeItem {
+  constructor(hours: number, count: number) {
+    super(
+      count > 0 ? `오늘 ${fmtDuration(hours)}` : "오늘 기록 없음",
+      vscode.TreeItemCollapsibleState.None,
+    );
+    this.iconPath = new vscode.ThemeIcon("watch");
+    if (count > 0) {
+      this.description = `${count}건`;
+      this.tooltip = `오늘 기록한 소요시간 ${fmtDuration(hours)} · ${count}건 — 클릭하면 소요시간 패널`;
+    } else {
+      this.tooltip = "오늘 기록한 소요시간이 없습니다 — 클릭하면 소요시간 패널";
+    }
+    this.contextValue = "redmine:todayTime";
+    this.command = { command: "redmine.openPanelTime", title: "소요시간 패널 열기" };
+  }
+}
+
+export type RedmineNode = IssueNode | GroupNode | ProjectNode | MoreNode | TodayTimeNode;
 
 export function setContext(key: string, value: unknown): void {
   void vscode.commands.executeCommand("setContext", key, value);

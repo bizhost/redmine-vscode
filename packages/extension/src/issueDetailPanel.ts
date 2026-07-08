@@ -281,9 +281,11 @@ export class IssueDetailPanel {
       .join("");
     const canLogTime = this.ctx.timeEntryActivities.length > 0;
 
+    // 10칸 바: v/10개 ▓ + 나머지 ░ + 공백 + v% (value는 숫자 그대로 — 서버 전송 무변경)
+    const doneBar = (v: number): string => "▓".repeat(v / 10) + "░".repeat(10 - v / 10) + ` ${v}%`;
     const doneOptions = Array.from({ length: 11 }, (_, i) => i * 10)
       .map(
-        (v) => `<option value="${v}"${v === (issue.done_ratio ?? 0) ? " selected" : ""}>${v}%</option>`,
+        (v) => `<option value="${v}"${v === (issue.done_ratio ?? 0) ? " selected" : ""}>${doneBar(v)}</option>`,
       )
       .join("");
 
@@ -482,13 +484,13 @@ ${issueDetailCss}
   <div class="side">
     <h2>속성</h2>
     <div class="props">
-      <label>유형 <select id="tracker">${options(trackers, issue.tracker?.id)}</select></label>
-      <label>담당자 <select id="assignee">${options(assignees, issue.assigned_to?.id, "(없음)")}</select></label>
-      <label>범주 <select id="category">${options(categories, issue.category?.id, "(없음)")}</select></label>
-      <label>진척도 <select id="done">${doneOptions}</select></label>
-      <label>시작일 <input type="date" id="start" value="${esc(issue.start_date)}"></label>
-      <label>예정일 <input type="date" id="due" value="${esc(issue.due_date)}">${dday}</label>
-      <label>추정시간 <input type="number" id="estimated" min="0" step="0.5" value="${issue.estimated_hours ?? ""}"></label>
+      <label><b>유형</b><select id="tracker">${options(trackers, issue.tracker?.id)}</select></label>
+      <label><b>담당자</b><select id="assignee">${options(assignees, issue.assigned_to?.id, "(없음)")}</select></label>
+      <label><b>범주</b><select id="category">${options(categories, issue.category?.id, "(없음)")}</select></label>
+      <label><b>진척도</b><select id="done">${doneOptions}</select></label>
+      <label><b>시작일</b><input type="date" id="start" value="${esc(issue.start_date)}"></label>
+      <label><b>예정일</b><input type="date" id="due" value="${esc(issue.due_date)}">${dday}</label>
+      <label><b>추정시간</b><input type="number" id="estimated" min="0" step="0.5" value="${issue.estimated_hours ?? ""}"></label>
     </div>
     ${spentSection}
     <div id="watchers-box">${this.watcherBoxHtml()}</div>

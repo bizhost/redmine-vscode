@@ -73,9 +73,16 @@ ${sharedCss}
   .timelog label { display: inline-flex; align-items: center; gap: .4em; font-size: .88em; color: var(--vscode-descriptionForeground); }
   #hours { width: 5em; }
 
-  /* 사이드바 속성 */
+  /* 사이드바 속성 — flat 카드형 select/input (라벨=캡션, 값=카드) */
   .props { display: grid; gap: .5em; }
-  .props label { display: flex; flex-direction: column; gap: .2em; font-size: .82em; color: var(--vscode-descriptionForeground); }
+  .props label { position: relative; display: flex; flex-direction: column; gap: .2em; font-size: .82em; color: var(--vscode-descriptionForeground); }
+  .props label b { font-size: 10px; font-weight: 400; color: var(--vscode-descriptionForeground); }
+  .props select, .props input { appearance: none; -webkit-appearance: none; box-sizing: border-box; width: 100%; margin: 0;
+    font-size: 11px; color: var(--vscode-foreground); background: var(--vscode-editorWidget-background);
+    border: 1px solid var(--vscode-panel-border); border-radius: 2px; padding: 4px 6px; }
+  .props select { padding-right: 18px; } /* ▾ 글리프 자리 */
+  .props select:hover, .props input:hover, .props select:focus, .props input:focus { border-color: var(--vscode-focusBorder); outline: none; }
+  .props label:has(select)::after { content: "▾"; position: absolute; right: 6px; bottom: 5px; font-size: 10px; color: var(--vscode-descriptionForeground); pointer-events: none; }
   .props .dday { align-self: flex-start; }
   .dday { font-size: .82em; margin-left: .4em; }
   .dday.soon { color: var(--vscode-inputValidation-warningForeground, #e8a838); }

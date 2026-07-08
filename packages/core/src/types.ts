@@ -51,6 +51,9 @@ export interface Issue {
   start_date?: string;
   due_date?: string;
   estimated_hours?: number;
+  /** 기록된 소요시간 합계 (issue 상세에 기본 포함, 없을 수 있음) */
+  spent_hours?: number;
+  total_spent_hours?: number;
   created_on?: string;
   updated_on?: string;
   parent?: { id: number };
@@ -59,6 +62,8 @@ export interface Issue {
   journals?: Journal[];
   attachments?: Attachment[];
   changesets?: Changeset[];
+  /** include=watchers 조회 시 채워짐 */
+  watchers?: NamedRef[];
 }
 
 export interface IssueRelation {
@@ -73,6 +78,8 @@ export interface Project {
   id: number;
   name: string;
   identifier: string;
+  /** 상위 프로젝트 (권한상 안 보이면 undefined → 고아=루트 취급) */
+  parent?: { id: number; name?: string };
 }
 
 export interface SearchResult {

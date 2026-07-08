@@ -27,6 +27,10 @@ export interface ListIssuesOptions {
   subjectQuery?: string;
   /** 일감 번호 직접 조회 */
   issueId?: number;
+  /** 특정 담당자 id — assignedToMe=false일 때만 적용 */
+  assignedToId?: number;
+  /** 마감일 상한 (YYYY-MM-DD) → due_date=<=값. 서버측 필터 */
+  dueBefore?: string;
 }
 
 export interface IssuePage {
@@ -96,6 +100,9 @@ export class RedmineClient {
     const project = options.projectId ?? this.opts.projectIdentifier;
     if (project) params.set("project_id", String(project));
     if (options.assignedToMe ?? true) params.set("assigned_to_id", "me");
+    else if (options.assignedToId !== undefined)
+      params.set("assigned_to_id", String(options.assignedToId));
+    if (options.dueBefore) params.set("due_date", `<=${options.dueBefore}`);
     if (options.subjectQuery) params.set("subject", `~${options.subjectQuery}`);
     if (options.issueId !== undefined) params.set("issue_id", String(options.issueId));
     const data = await this.request<{ issues: Issue[]; total_count?: number }>(
@@ -106,9 +113,22 @@ export class RedmineClient {
 
   async getIssue(id: number): Promise<Issue> {
     const data = await this.request<{ issue: Issue }>(
-      `/issues/${id}.json?include=journals,attachments,children,relations,changesets`,
+      `/issues/${id}.json?include=journals,attachments,children,relations,changesets,watchers`,
     );
     return data.issue;
+  }
+
+  /** 관람자 추가 — POST /issues/:id/watchers.json */
+  async addWatcher(issueId: number, userId: number): Promise<void> {
+    await this.request(`/issues/${issueId}/watchers.json`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    });
+  }
+
+  /** 관람자 제거 — DELETE /issues/:id/watchers/:user_id.json */
+  async removeWatcher(issueId: number, userId: number): Promise<void> {
+    await this.request(`/issues/${issueId}/watchers/${userId}.json`, { method: "DELETE" });
   }
 
   /** 현재 API 키 소유 사용자 — 표시명(이름 우선, 없으면 login) */

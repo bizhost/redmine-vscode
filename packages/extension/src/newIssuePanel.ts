@@ -180,18 +180,20 @@ export class NewIssuePanel {
     background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
     font-size: .85em; cursor: pointer;
   }
-  .req::after { content: " *"; color: var(--vscode-errorForeground); }
+  .req { border-left: 2px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground)); padding-left: .5em; }
+  .req .cap::after { content: " *"; color: var(--vscode-errorForeground); }
+  .invalid { outline: 2px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground)); outline-offset: 1px; border-radius: 3px; }
 </style>
 </head>
 <body>
   <h1>새 일감 만들기</h1>
   <div class="grid">
-    <label class="req">프로젝트 <select id="project">${options(projectRefs, defaultProjectId)}</select></label>
-    <label class="req">유형 <select id="tracker"></select></label>
+    <label class="req"><span class="cap">프로젝트</span> <select id="project">${options(projectRefs, defaultProjectId)}</select></label>
+    <label class="req"><span class="cap">유형</span> <select id="tracker"></select></label>
     <label>상태 <select id="status">${options(statuses)}</select></label>
     <label>우선순위 <select id="priority">${options(priorities)}</select></label>
   </div>
-  <label class="req">제목 <input id="subject"></label>
+  <label class="req"><span class="cap">제목</span> <input id="subject"></label>
   <div class="grid" style="margin-top:.8em">
     <label>담당자 <select id="assignee"><option value="">(없음)</option></select></label>
     <label>범주 <select id="category"><option value="">(없음)</option></select></label>
@@ -262,8 +264,23 @@ export class NewIssuePanel {
         document.querySelectorAll("button").forEach((b) => { b.classList.remove("busy"); b.disabled = false; });
       }
     });
+    function markInvalid(el) {
+      el.classList.add("invalid");
+      const clear = () => el.classList.remove("invalid");
+      el.addEventListener("input", clear, { once: true });
+      el.addEventListener("change", clear, { once: true });
+    }
     function create(btn) {
-      if (!val("subject").trim()) { document.getElementById("subject").focus(); return; }
+      // 필수(프로젝트/유형/제목) 미입력 → 저장 차단 + 첫 미입력 필드 포커스·강조
+      for (const id of ["project", "tracker", "subject"]) {
+        const el = document.getElementById(id);
+        if (!String(el.value).trim()) {
+          markInvalid(el);
+          el.focus();
+          el.scrollIntoView({ block: "center" });
+          return;
+        }
+      }
       btn.classList.add("busy"); btn.disabled = true;
       vscode.postMessage({
         command: "create",

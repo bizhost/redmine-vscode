@@ -1,6 +1,4 @@
 import * as vscode from "vscode";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
@@ -9,36 +7,23 @@ import {
   exportFileNames,
   type UpdateIssueChanges,
 } from "@redmine-tools/core";
-
-const execFileAsync = promisify(execFile);
-
-// git log에서 이 파일 건드린 커밋들의 #번호 추출 (최근순, 중복 제거)
-async function issueIdsForFile(fileUri: vscode.Uri): Promise<number[]> {
-  const folder = vscode.workspace.getWorkspaceFolder(fileUri);
-  if (!folder) throw new Error("워크스페이스 폴더 밖의 파일");
-  const rel = path.relative(folder.uri.fsPath, fileUri.fsPath);
-  const { stdout } = await execFileAsync(
-    "git",
-    ["log", "-n", "500", "--format=%s%n%b", "--", rel],
-    { cwd: folder.uri.fsPath, maxBuffer: 10 * 1024 * 1024 },
-  );
-  const ids: number[] = [];
-  const seen = new Set<number>();
-  for (const m of stdout.matchAll(/#(\d+)/g)) {
-    const id = Number(m[1]);
-    if (!seen.has(id)) {
-      seen.add(id);
-      ids.push(id);
-    }
-  }
-  return ids;
-}
-import { MyIssuesView } from "./myIssuesProvider";
-import { ProjectsView } from "./projectsProvider";
+import { issueIdsForFile } from "./gitIssues";
+import { MyIssuesTree } from "./myIssuesTree";
+import { ProjectsTree } from "./projectsTree";
+import { HomeView, pushRecentIssue } from "./homeView";
+import { TimeLogView } from "./timeLogView";
+import { searchOpts, setContext, resetAuthLatch, type RedmineNode } from "./treeSupport";
 import { IssueDetailPanel } from "./issueDetailPanel";
 import { NewIssuePanel } from "./newIssuePanel";
 
 const SECRET_KEY = "redmine.apiKey";
+const GROUP_BY_ORDER = ["project", "status", "none"] as const;
+
+// 트리 노드 컨텍스트 인자에서 issueId 추출 (menu/inline → 노드, 직접 호출 → {issueId})
+function nodeIssueId(ctx: unknown): number | undefined {
+  const id = (ctx as { issueId?: unknown } | undefined)?.issueId;
+  return typeof id === "number" && Number.isInteger(id) ? id : undefined;
+}
 
 const IMAGE_MIME: Record<string, string> = {
   png: "image/png",
@@ -90,11 +75,60 @@ export function activate(context: vscode.ExtensionContext): void {
     return client;
   };
 
-  const myIssues = new MyIssuesView(getClient);
-  const projects = new ProjectsView(getClient);
+  const myIssues = new MyIssuesTree(getClient);
+  const projects = new ProjectsTree(getClient);
+  const home = new HomeView(getClient, context, () => refreshAll());
+  const timeLog = new TimeLogView(getClient);
+  let homeRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const refreshAll = (): void => {
     myIssues.refresh();
     projects.refresh();
+    home.refresh();
+    timeLog.refresh();
+  };
+
+  // 연결/인증 컨텍스트 키 갱신. authenticated는 키 존재 시 낙관적 true → 401이면 트리가 false로 래칭
+  const updateConnectionContext = async (): Promise<void> => {
+    const url = vscode.workspace.getConfiguration("redmine").get<string>("url", "").trim();
+    const apiKey = await context.secrets.get(SECRET_KEY);
+    resetAuthLatch(); // URL/키 변경 → 이전 401 래칭 해제
+    setContext("redmine:connected", !!url);
+    setContext("redmine:authenticated", !!url && !!apiKey);
+  };
+  void updateConnectionContext();
+
+  const searchAndOpen = async (assignedToMe: boolean, allProjects: boolean): Promise<void> => {
+    try {
+      const client = await requireClient();
+      const query = (
+        await vscode.window.showInputBox({
+          prompt: "제목 또는 #번호로 검색",
+          ignoreFocusOut: true,
+        })
+      )?.trim();
+      if (!query) return;
+      const page = await client.listIssues({
+        assignedToMe,
+        limit: 50,
+        ...(allProjects ? { projectId: 0 } : {}),
+        ...searchOpts(query),
+      });
+      if (page.issues.length === 0) {
+        vscode.window.showInformationMessage("검색 결과 없음");
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        page.issues.map((i) => ({
+          label: `#${i.id} ${i.subject}`,
+          description: i.status?.name,
+          id: i.id,
+        })),
+        { placeHolder: `검색 결과 ${page.issues.length}건` },
+      );
+      if (picked) await openIssue(picked.id);
+    } catch (err) {
+      vscode.window.showErrorMessage(`검색 실패: ${err instanceof Error ? err.message : err}`);
+    }
   };
 
   const openIssue = async (id: number): Promise<void> => {
@@ -121,16 +155,25 @@ export function activate(context: vscode.ExtensionContext): void {
       return subjects;
     };
 
-    const [statuses, priorities, trackers, assignees, categories, previews, relatedSubjects] =
-      await Promise.all([
-        client.listStatuses(),
-        client.listPriorities(),
-        client.listTrackers(),
-        projectId ? client.listAssignees(projectId) : Promise.resolve([]),
-        projectId ? client.listCategories(projectId) : Promise.resolve([]),
-        loadPreviews(client, issue.attachments ?? []),
-        loadRelatedSubjects(),
-      ]);
+    const [
+      statuses,
+      priorities,
+      trackers,
+      assignees,
+      categories,
+      previews,
+      relatedSubjects,
+      timeEntryActivities,
+    ] = await Promise.all([
+      client.listStatuses(),
+      client.listPriorities(),
+      client.listTrackers(),
+      projectId ? client.listAssignees(projectId) : Promise.resolve([]),
+      projectId ? client.listCategories(projectId) : Promise.resolve([]),
+      loadPreviews(client, issue.attachments ?? []),
+      loadRelatedSubjects(),
+      client.listTimeEntryActivities().catch(() => []),
+    ]);
     IssueDetailPanel.show({
       issue,
       statuses,
@@ -140,22 +183,149 @@ export function activate(context: vscode.ExtensionContext): void {
       categories,
       previews,
       relatedSubjects,
+      timeEntryActivities,
       uploadFile: (filename, data) => client.uploadFile(filename, data),
       onUpdate: async (changes: UpdateIssueChanges) => {
         await client.updateIssue(id, changes);
         IssueDetailPanel.update(await client.getIssue(id));
         refreshAll();
       },
+      logTime: async (hours, activityId, comments) => {
+        const now = new Date();
+        const spentOn = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        // time_entry.comments는 길이 제한(≤255) — 첫 줄 요약만
+        const summary = comments.split("\n")[0].trim().slice(0, 255);
+        await client.createTimeEntry({ issueId: id, hours, activityId, comments: summary || undefined, spentOn });
+        timeLog.refresh();
+      },
     });
+    pushRecentIssue(context, id); // 개요 '최근 본 일감'
+    home.refresh();
   };
 
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider("redmineMyIssues", myIssues),
-    vscode.window.registerWebviewViewProvider("redmineProjects", projects),
+  // 상태 변경 QuickPick → updateIssue. reopenOnly면 열린 상태만 후보
+  const changeStatus = async (node: unknown, reopenOnly = false): Promise<void> => {
+    const id = nodeIssueId(node);
+    if (id === undefined) return;
+    const client = await requireClient();
+    const statuses = await client.listStatuses();
+    const choices = reopenOnly ? statuses.filter((s) => !s.is_closed) : statuses;
+    const picked = await vscode.window.showQuickPick(
+      choices.map((s) => ({ label: s.name, id: s.id })),
+      { placeHolder: reopenOnly ? "재오픈할 상태 선택" : `#${id} 상태 변경` },
+    );
+    if (!picked) return;
+    await client.updateIssue(id, { statusId: picked.id });
+    IssueDetailPanel.update(await client.getIssue(id)); // 열려있으면 반영
+    refreshAll();
+  };
 
-    vscode.commands.registerCommand("redmine.refresh", refreshAll),
-    vscode.commands.registerCommand("redmine.searchMyIssues", () => myIssues.toggleSearch()),
-    vscode.commands.registerCommand("redmine.searchProjects", () => projects.toggleSearch()),
+  const myView = vscode.window.createTreeView<RedmineNode>("redmineMyIssues", {
+    treeDataProvider: myIssues,
+    canSelectMany: true,
+  });
+  myIssues.bindView(myView);
+  const projectsView = vscode.window.createTreeView<RedmineNode>("redmineProjects", {
+    treeDataProvider: projects,
+    canSelectMany: true,
+  });
+  projects.bindView(projectsView);
+
+  context.subscriptions.push(
+    myView,
+    projectsView,
+    vscode.window.registerWebviewViewProvider("redmineHome", home),
+    vscode.window.registerWebviewViewProvider("redmineTimeLog", timeLog),
+
+    // 활성 파일 변경 → 허브 '현재 작업' 갱신 (허브 보일 때만, 400ms 디바운스)
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      if (!home.isVisible()) return;
+      if (homeRefreshTimer) clearTimeout(homeRefreshTimer);
+      homeRefreshTimer = setTimeout(() => home.refresh(), 400);
+    }),
+
+    // groupBy/url 설정 변경 → 컨텍스트 키·트리·허브 갱신
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("redmine.url")) {
+        void updateConnectionContext();
+        timeLog.resetUsers(); // 서버 변경 → 누적 사용자 초기화
+        refreshAll();
+      }
+      if (e.affectsConfiguration("redmine.views.myIssues.groupBy")) myIssues.rerender();
+    }),
+
+    vscode.commands.registerCommand("redmine.refresh", () => {
+      resetAuthLatch(); // 재조회로 인증 재판정 허용
+      refreshAll();
+    }),
+    vscode.commands.registerCommand("redmine.searchMyIssues", () => searchAndOpen(true, false)),
+    vscode.commands.registerCommand("redmine.searchProjects", () => searchAndOpen(false, true)),
+    vscode.commands.registerCommand("redmine.myIssues.more", () => myIssues.loadMore()),
+    vscode.commands.registerCommand("redmine.projects.more", (projectId: number) =>
+      projects.loadMore(projectId),
+    ),
+
+    vscode.commands.registerCommand("redmine.toggleMyIssuesGroupBy", async () => {
+      const cfg = vscode.workspace.getConfiguration("redmine");
+      const cur = cfg.get<string>("views.myIssues.groupBy", "project");
+      const next = GROUP_BY_ORDER[(GROUP_BY_ORDER.indexOf(cur as never) + 1) % GROUP_BY_ORDER.length];
+      await cfg.update("views.myIssues.groupBy", next, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage(`내 일감 그룹 기준: ${next}`);
+    }),
+
+    vscode.commands.registerCommand("redmine.openIssueByNumber", async () => {
+      const value = await vscode.window.showInputBox({
+        prompt: "열 일감 번호",
+        ignoreFocusOut: true,
+        validateInput: (v) => (/^#?\d+$/.test(v.trim()) ? null : "숫자 또는 #숫자"),
+      });
+      const id = Number(value?.trim().replace(/^#/, ""));
+      if (Number.isInteger(id)) await openIssue(id);
+    }),
+
+    vscode.commands.registerCommand("redmine.changeStatus", (node?: unknown) =>
+      changeStatus(node).catch((err) =>
+        vscode.window.showErrorMessage(`상태 변경 실패: ${err instanceof Error ? err.message : err}`),
+      ),
+    ),
+    vscode.commands.registerCommand("redmine.reopenIssue", (node?: unknown) =>
+      changeStatus(node, true).catch((err) =>
+        vscode.window.showErrorMessage(`재오픈 실패: ${err instanceof Error ? err.message : err}`),
+      ),
+    ),
+    vscode.commands.registerCommand("redmine.copyIssueLink", async (node?: unknown) => {
+      const id = nodeIssueId(node);
+      if (id === undefined) return;
+      const url = vscode.workspace.getConfiguration("redmine").get<string>("url", "").trim();
+      if (!url) {
+        vscode.window.showErrorMessage("Redmine URL 미설정: settings에서 redmine.url 설정");
+        return;
+      }
+      await vscode.env.clipboard.writeText(`${url.replace(/\/+$/, "")}/issues/${id}`);
+      vscode.window.showInformationMessage(`링크 복사됨: #${id}`);
+    }),
+    vscode.commands.registerCommand("redmine.showChangesets", async (node?: unknown) => {
+      try {
+        const id = nodeIssueId(node);
+        if (id === undefined) return;
+        const client = await requireClient();
+        const changesets = (await client.getIssue(id)).changesets ?? [];
+        if (changesets.length === 0) {
+          vscode.window.showInformationMessage(`#${id} 연결된 커밋 없음`);
+          return;
+        }
+        await vscode.window.showQuickPick(
+          changesets.map((c) => ({
+            label: c.revision.slice(0, 12),
+            description: c.comments?.split("\n")[0] ?? "",
+            detail: [c.user?.name, c.committed_on].filter(Boolean).join(" · "),
+          })),
+          { placeHolder: `#${id} 연결 커밋 ${changesets.length}건` },
+        );
+      } catch (err) {
+        vscode.window.showErrorMessage(`커밋 조회 실패: ${err instanceof Error ? err.message : err}`);
+      }
+    }),
 
     vscode.commands.registerCommand("redmine.setApiKey", async () => {
       const value = await vscode.window.showInputBox({
@@ -166,6 +336,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (value) {
         await context.secrets.store(SECRET_KEY, value.trim());
         vscode.window.showInformationMessage("Redmine API Key 저장됨");
+        await updateConnectionContext();
         refreshAll();
       }
     }),
@@ -229,16 +400,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand(
       "redmine.downloadIssues",
-      async (ctx?: { issueId?: number }) => {
+      async (node?: unknown, selected?: unknown[]) => {
         try {
-          const clicked = Number(ctx?.issueId);
-          if (!Number.isInteger(clicked)) return;
-          // 클릭 항목이 포함된 pane의 다중 선택 사용, 아니면 단일
-          const ids = myIssues.getSelection().includes(clicked)
-            ? myIssues.getSelection()
-            : projects.getSelection().includes(clicked)
-              ? projects.getSelection()
-              : [clicked];
+          const clicked = nodeIssueId(node);
+          if (clicked === undefined) return;
+          // 클릭한 트리의 다중 선택만 사용 (VS Code가 2번째 인자로 전달) — 반대편 트리 무시
+          const picked = Array.isArray(selected)
+            ? selected.map(nodeIssueId).filter((v): v is number => v !== undefined)
+            : [];
+          const ids = picked.length ? [...new Set([clicked, ...picked])] : [clicked];
 
           // 설정된 기본 경로 있으면 바로 사용, 없으면 매번 선택
           const configured = vscode.workspace

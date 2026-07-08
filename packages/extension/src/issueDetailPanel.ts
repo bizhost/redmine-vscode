@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { Issue, NamedRef, UpdateIssueChanges } from "@redmine-tools/core";
+import type { Issue, NamedRef, TimeEntryActivity, UpdateIssueChanges } from "@redmine-tools/core";
 
 function esc(text: string | undefined | null): string {
   return (text ?? "")
@@ -42,8 +42,11 @@ export interface IssueDetailContext {
   previews: Record<number, string>;
   /** 상위/연결 일감 id → 제목 (표시용) */
   relatedSubjects: Record<number, string>;
+  timeEntryActivities: TimeEntryActivity[];
   onUpdate: (changes: UpdateIssueChanges) => Promise<void>;
   uploadFile: (filename: string, data: Uint8Array) => Promise<string>;
+  /** 소요시간 기록 (댓글 폼) */
+  logTime: (hours: number, activityId: number | undefined, comments: string) => Promise<void>;
 }
 
 const RELATION_LABEL: Record<string, string> = {
@@ -117,18 +120,43 @@ export class IssueDetailPanel {
         } else if (msg.command === "comment") {
           const notes = String(msg.notes ?? "").trim();
           const files = this.pendingUploads;
-          if (!notes && files.length === 0) return;
-          this.pendingFlash = "댓글 등록됨 ✓";
-          const uploads = [];
-          for (const f of files) {
-            uploads.push({ token: await this.ctx.uploadFile(f.name, f.data), filename: f.name });
+          const hours = Number(msg.hours);
+          const hasTime = Number.isFinite(hours) && hours > 0;
+          const hasComment = !!notes || files.length > 0;
+          if (!hasComment && !hasTime) return;
+
+          // 1) 댓글/첨부 — 실패는 outer catch("저장 실패")로
+          if (hasComment) {
+            // 시간도 있으면 성공 flash는 아래에서 통합, 아니면 여기서 댓글 flash
+            this.pendingFlash = hasTime ? undefined : "댓글 등록됨 ✓";
+            const uploads = [];
+            for (const f of files) {
+              uploads.push({ token: await this.ctx.uploadFile(f.name, f.data), filename: f.name });
+            }
+            this.pendingUploads = []; // 성공 렌더 전 비움, 실패 시 복구
+            try {
+              await this.ctx.onUpdate({ notes, privateNotes: msg.privateNotes === true, uploads });
+            } catch (err) {
+              this.pendingUploads = files;
+              throw err;
+            }
           }
-          this.pendingUploads = []; // 성공 렌더 전에 비움, 실패 시 catch에서 복구
-          try {
-            await this.ctx.onUpdate({ notes, privateNotes: msg.privateNotes === true, uploads });
-          } catch (err) {
-            this.pendingUploads = files;
-            throw err;
+          // 2) 소요시간 — 실패는 댓글 성공 여부와 구분해 별도 안내
+          if (hasTime) {
+            const activityId =
+              msg.activityId === "" || msg.activityId == null ? undefined : Number(msg.activityId);
+            try {
+              await this.ctx.logTime(hours, activityId, notes);
+            } catch (err) {
+              this.pendingFlash = undefined;
+              void this.panel.webview.postMessage({ command: "idle" });
+              vscode.window.showErrorMessage(
+                `소요시간 기록 실패${hasComment ? " (댓글은 등록됨)" : ""}: ${err instanceof Error ? err.message : err}`,
+              );
+              return;
+            }
+            this.pendingFlash = hasComment ? "댓글 · 소요시간 기록됨 ✓" : "소요시간 기록됨 ✓";
+            this.render(); // 시간 기록 반영 (댓글 있으면 통합 flash로 재렌더)
           }
         } else if (msg.command === "pickFiles") {
           const picked = await vscode.window.showOpenDialog({ canSelectMany: true, openLabel: "첨부" });
@@ -180,6 +208,11 @@ export class IssueDetailPanel {
     const flash = this.pendingFlash;
     this.pendingFlash = undefined;
     this.panel.title = `#${issue.id} ${issue.subject}`;
+    const highPriority = /높음|긴급|즉시|urgent|high|immediate/i.test(issue.priority?.name ?? "");
+    const activityOptions = this.ctx.timeEntryActivities
+      .map((a) => `<option value="${a.id}"${a.is_default ? " selected" : ""}>${esc(a.name)}</option>`)
+      .join("");
+    const canLogTime = this.ctx.timeEntryActivities.length > 0;
 
     const doneOptions = Array.from({ length: 11 }, (_, i) => i * 10)
       .map(
@@ -278,11 +311,19 @@ export class IssueDetailPanel {
     font-family: var(--vscode-font-family); box-sizing: border-box;
   }
   #subject { width: 100%; font-size: 1.1em; font-weight: 600; margin: .6em 0; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: .7em; margin-bottom: .8em; }
+  .badges { margin: .2em 0 .4em; }
+  .badge { display: inline-block; border-radius: 10px; padding: .1em .7em; font-size: .8em; font-weight: 600; margin-right: .4em; border: 1px solid transparent; }
+  .b-id { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+  .b-st { background: var(--vscode-inputValidation-warningBackground, #7a5b0f); color: var(--vscode-inputValidation-warningForeground, #ffe9ad); border-color: var(--vscode-inputValidation-warningBorder, transparent); }
+  .b-pri { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+  .b-pri.high { background: var(--vscode-inputValidation-errorBackground, #7a2222); color: var(--vscode-inputValidation-errorForeground, #ffc2c2); border-color: var(--vscode-inputValidation-errorBorder, transparent); }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .7em; margin-bottom: .8em; }
   .grid label, .desclabel { display: flex; flex-direction: column; gap: .25em; font-size: .85em; color: var(--vscode-descriptionForeground); }
   textarea { width: 100%; resize: vertical; }
   #description { min-height: 250px; }
   #notes { min-height: 5em; }
+  .timelog label { flex-direction: row; align-items: center; gap: .4em; font-size: .85em; color: var(--vscode-descriptionForeground); }
+  #hours { width: 5em; }
   .commentform { margin-top: .6em; }
   .row { display: flex; gap: 1em; align-items: center; margin-top: .5em; }
   h2 { font-size: 1.05em; margin-top: 1.5em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: .3em; }
@@ -319,9 +360,14 @@ export class IssueDetailPanel {
   ${flash ? `<div class="flash">${esc(flash)}</div>` : ""}
   <div class="layout">
   <div class="main">
-  <p class="meta">#${issue.id} · ${esc(issue.project?.name ?? "")} · 작성: ${esc(issue.author?.name ?? "-")} · 수정: ${esc(issue.updated_on ?? "-")}</p>
-  ${parentHtml}
+  <div class="badges">
+    <span class="badge b-id">#${issue.id}</span>
+    <span class="badge b-st" id="badge-status">${esc(issue.status?.name ?? "")}</span>
+    <span class="badge b-pri${highPriority ? " high" : ""}" id="badge-priority">${esc(issue.priority?.name ?? "")}</span>
+  </div>
   <input id="subject" value="${esc(issue.subject)}">
+  <p class="meta">${esc(issue.project?.name ?? "")} · 작성: ${esc(issue.author?.name ?? "-")}${issue.created_on ? " " + esc(issue.created_on) : ""} · 수정: ${esc(issue.updated_on ?? "-")}</p>
+  ${parentHtml}
 
   <div class="grid">
     <label>유형 <select id="tracker">${options(trackers, issue.tracker?.id)}</select></label>
@@ -344,8 +390,7 @@ export class IssueDetailPanel {
     <button onclick="vscode.postMessage({command:'openInBrowser'})" title="브라우저에서 열기">↗ 브라우저로 보기</button>
   </div>
 
-  ${children ? `<h2>하위 일감</h2><ul>${children}</ul>` : ""}
-  ${relations ? `<h2>연결된 일감</h2><ul>${relations}</ul>` : ""}
+  ${children || relations ? `<h2>하위 · 연결 일감</h2><ul>${children}${relations}</ul>` : ""}
   ${changesets ? `<h2>연결된 커밋</h2><ul>${changesets}</ul>` : ""}
 
   <h2>댓글 (${(issue.journals ?? []).filter((j) => j.notes || j.details?.some((d) => d.property === "attachment")).length})</h2>
@@ -354,6 +399,14 @@ export class IssueDetailPanel {
   <div class="commentform">
     <textarea id="notes" placeholder="댓글 입력..."></textarea>
     <div id="files"></div>
+    <div class="row timelog">
+      ${
+        canLogTime
+          ? `<label>소요시간 <input type="number" id="hours" min="0" step="0.25" placeholder="h"></label>
+      <label>활동 <select id="activity">${activityOptions}</select></label>`
+          : `<span class="dim">활동 목록을 불러올 수 없어 시간 기록 불가</span>`
+      }
+    </div>
     <div class="row">
       <button onclick="comment(this)">댓글 등록</button>
       <button onclick="vscode.postMessage({command:'pickFiles'})">파일 첨부</button>
@@ -387,6 +440,21 @@ export class IssueDetailPanel {
         vscode.postMessage({ command: "open", id: Number(a.dataset.id) });
       });
     });
+    // 상태/우선순위 select 변경 → 헤더 배지 즉시 동기화 (저장 프로토콜 무관)
+    function syncBadges() {
+      const st = document.getElementById("status");
+      const pr = document.getElementById("priority");
+      const stB = document.getElementById("badge-status");
+      const prB = document.getElementById("badge-priority");
+      if (stB && st.selectedIndex >= 0) stB.textContent = st.options[st.selectedIndex].text;
+      if (prB && pr.selectedIndex >= 0) {
+        const t = pr.options[pr.selectedIndex].text;
+        prB.textContent = t;
+        prB.classList.toggle("high", /높음|긴급|즉시|urgent|high|immediate/i.test(t));
+      }
+    }
+    document.getElementById("status").addEventListener("change", syncBadges);
+    document.getElementById("priority").addEventListener("change", syncBadges);
     document.getElementById("notes").addEventListener("paste", (e) => {
       const items = e.clipboardData && e.clipboardData.items;
       if (!items) return;
@@ -433,12 +501,17 @@ export class IssueDetailPanel {
       });
     }
     function comment(btn) {
-      if (!val("notes").trim() && !document.getElementById("files").childElementCount) return;
+      const hoursEl = document.getElementById("hours");
+      const actEl = document.getElementById("activity");
+      const hasTime = hoursEl && parseFloat(hoursEl.value) > 0;
+      if (!val("notes").trim() && !document.getElementById("files").childElementCount && !hasTime) return;
       busy(btn);
       vscode.postMessage({
         command: "comment",
         notes: val("notes"),
         privateNotes: document.getElementById("private").checked,
+        hours: hoursEl ? hoursEl.value : "",
+        activityId: actEl ? actEl.value : "",
       });
     }
   </script>

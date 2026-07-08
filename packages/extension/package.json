@@ -37,17 +37,52 @@
     "views": {
       "redmine": [
         {
-          "id": "redmineMyIssues",
-          "name": "내 일감",
+          "id": "redmineHome",
+          "name": "Home",
           "type": "webview"
         },
         {
+          "id": "redmineMyIssues",
+          "name": "내 일감"
+        },
+        {
           "id": "redmineProjects",
-          "name": "프로젝트",
+          "name": "프로젝트"
+        },
+        {
+          "id": "redmineTimeLog",
+          "name": "소요시간",
           "type": "webview"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "redmineMyIssues",
+        "when": "!redmine:connected",
+        "contents": "Redmine 서버에 연결하세요.\n서버 URL을 설정하면 일감을 불러옵니다.\n[서버 URL 설정](command:workbench.action.openSettings?%5B%22redmine.url%22%5D)"
+      },
+      {
+        "view": "redmineMyIssues",
+        "when": "redmine:connected && !redmine:authenticated",
+        "contents": "API 키가 없거나 인증에 실패했습니다.\nRedmine 개인 API 키를 등록하세요.\n[API 키 입력](command:redmine.setApiKey)\n[서버 URL 확인](command:workbench.action.openSettings?%5B%22redmine.url%22%5D)"
+      },
+      {
+        "view": "redmineMyIssues",
+        "when": "redmine:connected && redmine:authenticated && !redmine:loading && !redmine:loadError",
+        "contents": "할당된 일감이 없습니다.\n[+ 새 일감 만들기](command:redmine.newIssue)\n[# 번호로 열기](command:redmine.openIssueByNumber)"
+      },
+      {
+        "view": "redmineProjects",
+        "when": "!redmine:connected",
+        "contents": "Redmine 서버에 연결하세요.\n서버 URL을 설정하면 일감을 불러옵니다.\n[서버 URL 설정](command:workbench.action.openSettings?%5B%22redmine.url%22%5D)"
+      },
+      {
+        "view": "redmineProjects",
+        "when": "redmine:connected && !redmine:authenticated",
+        "contents": "API 키가 없거나 인증에 실패했습니다.\nRedmine 개인 API 키를 등록하세요.\n[API 키 입력](command:redmine.setApiKey)\n[서버 URL 확인](command:workbench.action.openSettings?%5B%22redmine.url%22%5D)"
+      }
+    ],
     "commands": [
       {
         "command": "redmine.refresh",
@@ -89,52 +124,137 @@
       {
         "command": "redmine.downloadIssues",
         "title": "일감 다운로드 (issue.md + 첨부)"
+      },
+      {
+        "command": "redmine.openIssueByNumber",
+        "title": "Redmine: #번호로 열기",
+        "icon": "$(symbol-number)"
+      },
+      {
+        "command": "redmine.toggleMyIssuesGroupBy",
+        "title": "Redmine: 내 일감 그룹 기준 변경",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "redmine.changeStatus",
+        "title": "Redmine: 상태 변경…",
+        "icon": "$(check)"
+      },
+      {
+        "command": "redmine.reopenIssue",
+        "title": "Redmine: 재오픈",
+        "icon": "$(issue-reopened)"
+      },
+      {
+        "command": "redmine.copyIssueLink",
+        "title": "Redmine: 링크 복사",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "redmine.showChangesets",
+        "title": "Redmine: 연결 커밋 보기",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "redmine.myIssues.more",
+        "title": "Redmine: 더 보기"
+      },
+      {
+        "command": "redmine.projects.more",
+        "title": "Redmine: 더 보기"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "redmine.newIssue",
-          "when": "view == redmineMyIssues || view == redmineProjects",
-          "group": "navigation"
+          "command": "redmine.searchMyIssues",
+          "when": "view == redmineMyIssues",
+          "group": "navigation@1"
+        },
+        {
+          "command": "redmine.openIssueByNumber",
+          "when": "view == redmineMyIssues",
+          "group": "navigation@2"
+        },
+        {
+          "command": "redmine.toggleMyIssuesGroupBy",
+          "when": "view == redmineMyIssues",
+          "group": "navigation@3"
         },
         {
           "command": "redmine.refresh",
-          "when": "view == redmineMyIssues || view == redmineProjects",
-          "group": "navigation"
-        },
-        {
-          "command": "redmine.searchMyIssues",
           "when": "view == redmineMyIssues",
-          "group": "navigation"
+          "group": "navigation@4"
         },
         {
           "command": "redmine.searchProjects",
           "when": "view == redmineProjects",
+          "group": "navigation@1"
+        },
+        {
+          "command": "redmine.refresh",
+          "when": "view == redmineProjects",
+          "group": "navigation@2"
+        },
+        {
+          "command": "redmine.refresh",
+          "when": "view == redmineTimeLog",
           "group": "navigation"
         }
       ],
-      "webview/context": [
+      "view/item/context": [
         {
           "command": "redmine.openIssueInBrowser",
-          "when": "webviewSection == 'issue'"
+          "when": "viewItem =~ /redmine:issue/",
+          "group": "inline@1"
+        },
+        {
+          "command": "redmine.changeStatus",
+          "when": "viewItem =~ /redmine:issue\\+open/",
+          "group": "inline@2"
+        },
+        {
+          "command": "redmine.reopenIssue",
+          "when": "viewItem =~ /redmine:issue\\+closed/",
+          "group": "inline@2"
+        },
+        {
+          "command": "redmine.changeStatus",
+          "when": "viewItem =~ /redmine:issue\\+open/",
+          "group": "1_redmine_actions@1"
         },
         {
           "command": "redmine.downloadIssues",
-          "when": "webviewSection == 'issue'"
+          "when": "viewItem =~ /redmine:issue/",
+          "group": "2_redmine_explore@1"
+        },
+        {
+          "command": "redmine.showChangesets",
+          "when": "viewItem =~ /redmine:issue\\+open/",
+          "group": "2_redmine_explore@2"
+        },
+        {
+          "command": "redmine.copyIssueLink",
+          "when": "viewItem =~ /redmine:issue/",
+          "group": "3_redmine_share@1"
+        },
+        {
+          "command": "redmine.openIssueInBrowser",
+          "when": "viewItem =~ /redmine:issue/",
+          "group": "3_redmine_share@2"
         }
       ],
       "explorer/context": [
         {
           "command": "redmine.issuesForFile",
           "when": "!explorerResourceIsFolder",
-          "group": "redmine"
+          "group": "z_redmine"
         }
       ],
       "editor/context": [
         {
           "command": "redmine.issuesForFile",
-          "group": "redmine"
+          "group": "z_redmine"
         }
       ],
       "commandPalette": [
@@ -148,6 +268,30 @@
         },
         {
           "command": "redmine.downloadIssues",
+          "when": "false"
+        },
+        {
+          "command": "redmine.changeStatus",
+          "when": "false"
+        },
+        {
+          "command": "redmine.reopenIssue",
+          "when": "false"
+        },
+        {
+          "command": "redmine.copyIssueLink",
+          "when": "false"
+        },
+        {
+          "command": "redmine.showChangesets",
+          "when": "false"
+        },
+        {
+          "command": "redmine.myIssues.more",
+          "when": "false"
+        },
+        {
+          "command": "redmine.projects.more",
           "when": "false"
         }
       ]
@@ -169,6 +313,12 @@
           "type": "string",
           "default": "",
           "description": "일감 다운로드 기본 경로. 절대경로/~ 또는 상대경로(워크스페이스 기준). 비우면 매번 위치 선택"
+        },
+        "redmine.views.myIssues.groupBy": {
+          "type": "string",
+          "enum": ["project", "status", "none"],
+          "default": "project",
+          "description": "'내 일감' 트리 그룹 기준 (프로젝트/상태/그룹없음)"
         }
       }
     }

@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as path from "node:path";
+import { readdir } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 
 const execFileAsync = promisify(execFile);
 const MAXBUF = 20 * 1024 * 1024;
@@ -37,24 +39,32 @@ export interface GitRepo {
   path: string;
 }
 
-// 워크스페이스 폴더 중 git 저장소인 것만 (rev-parse로 확인)
+// 워크스페이스 하위 중첩 저장소까지 탐색. .git 엔트리(디렉토리=일반, 파일=worktree/서브모듈) 존재 = 저장소.
+// ponytail: 깊이 3 고정 스캔, 더 깊은 모노레포면 REPO_SCAN_DEPTH 상향 또는 설정화.
+const REPO_SCAN_DEPTH = 3;
+
 export async function listGitRepos(): Promise<GitRepo[]> {
   const folders = vscode.workspace.workspaceFolders ?? [];
   const repos: GitRepo[] = [];
+  await Promise.all(folders.map((f) => scanRepos(f.uri.fsPath, f.name, repos, REPO_SCAN_DEPTH)));
+  // 이름 정렬 = 부모 repo가 하위 repo보다 앞 + 로드 간 순서 안정(필터가 인덱스 기반)
+  return repos.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function scanRepos(dir: string, name: string, out: GitRepo[], depth: number): Promise<void> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return; // 접근 불가 → 무시
+  }
+  if (entries.some((e) => e.name === ".git")) out.push({ name, path: dir });
+  if (depth === 0) return;
   await Promise.all(
-    folders.map(async (f) => {
-      try {
-        await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], {
-          cwd: f.uri.fsPath,
-          maxBuffer: MAXBUF,
-        });
-        repos.push({ name: f.name, path: f.uri.fsPath });
-      } catch {
-        // git 저장소 아님 → 제외
-      }
-    }),
+    entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules")
+      .map((e) => scanRepos(path.join(dir, e.name), `${name}/${e.name}`, out, depth - 1)),
   );
-  return repos;
 }
 
 export async function gitBranches(

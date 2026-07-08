@@ -7,3 +7,5 @@ docs/
 issue/
 *.mcpb
 dist-mcpb/
+.claude
+.vscode

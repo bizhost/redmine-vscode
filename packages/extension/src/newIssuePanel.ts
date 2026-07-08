@@ -1,29 +1,6 @@
 import * as vscode from "vscode";
 import type { CreateIssueFields, Issue, NamedRef, Project } from "@redmine-tools/core";
-
-function esc(text: string | undefined | null): string {
-  return (text ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function options(items: NamedRef[], selectedId?: number, emptyLabel?: string): string {
-  const empty =
-    emptyLabel !== undefined
-      ? `<option value=""${selectedId === undefined ? " selected" : ""}>${esc(emptyLabel)}</option>`
-      : "";
-  return (
-    empty +
-    items
-      .map(
-        (item) =>
-          `<option value="${item.id}"${item.id === selectedId ? " selected" : ""}>${esc(item.name)}</option>`,
-      )
-      .join("")
-  );
-}
+import { options, sharedCss } from "./webviewShared";
 
 export interface ProjectFormData {
   trackers: NamedRef[];
@@ -155,25 +132,13 @@ export class NewIssuePanel {
 <style>
   body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0 1.5em 2em; max-width: 60em; }
   h1 { font-size: 1.2em; }
-  input, select, textarea {
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: .35em;
-    font-family: var(--vscode-font-family); box-sizing: border-box;
-  }
+${sharedCss}
   #subject { width: 100%; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: .7em; margin: .8em 0; }
   label { display: flex; flex-direction: column; gap: .25em; font-size: .85em; color: var(--vscode-descriptionForeground); }
   label.inline { flex-direction: row; align-items: center; gap: .4em; }
   textarea { width: 100%; min-height: 250px; resize: vertical; }
   button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: .45em 1.2em; border-radius: 3px; cursor: pointer; }
-  button:hover { background: var(--vscode-button-hoverBackground); }
-  button.busy { opacity: .7; pointer-events: none; }
-  button.busy::after {
-    content: ""; display: inline-block; width: .8em; height: .8em; margin-left: .5em;
-    border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%;
-    animation: spin .8s linear infinite; vertical-align: -.1em;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
   .row { display: flex; gap: 1em; align-items: center; margin-top: .8em; }
   .chip {
     display: inline-block; margin: 0 .35em .3em 0; padding: .15em .6em; border-radius: 10px;

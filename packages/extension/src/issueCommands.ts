@@ -272,6 +272,7 @@ export function registerIssueCommands(d: CommandDeps): vscode.Disposable[] {
           return;
         }
         NewIssuePanel.show({
+          extensionUri: context.extensionUri,
           projects,
           statuses,
           priorities,

@@ -363,7 +363,7 @@
   },
   "scripts": {
     "build": "node esbuild.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && svelte-check --tsconfig src/webviewUi/tsconfig.json"
   },
   "dependencies": {
     "@redmine-tools/core": "*"
@@ -372,6 +372,9 @@
     "@types/node": "^26.1.0",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.24.0",
+    "esbuild-svelte": "0.9.5",
+    "svelte": "5.56.4",
+    "svelte-check": "4.7.2",
     "typescript": "^5.5.0"
   }
 }

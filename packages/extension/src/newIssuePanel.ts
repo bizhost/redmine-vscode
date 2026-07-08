@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { CreateIssueFields, Issue, NamedRef, Project } from "@redmine-tools/core";
-import { options, sharedCss } from "./webviewShared";
+import { randomBytes } from "node:crypto";
+import type { NewIssueInit } from "./webviewUi/shared/messages";
 
 export interface ProjectFormData {
   trackers: NamedRef[];
@@ -9,6 +10,7 @@ export interface ProjectFormData {
 }
 
 export interface NewIssueContext {
+  extensionUri: vscode.Uri;
   projects: Project[];
   statuses: NamedRef[];
   priorities: NamedRef[];
@@ -37,7 +39,10 @@ export class NewIssuePanel {
       "redmineNewIssue",
       "새 일감 만들기",
       vscode.ViewColumn.Active,
-      { enableScripts: true },
+      {
+        enableScripts: true,
+        localResourceRoots: [vscode.Uri.joinPath(ctx.extensionUri, "dist", "webview")],
+      },
     );
     this.panel.onDidDispose(() => {
       NewIssuePanel.current = undefined;
@@ -120,153 +125,27 @@ export class NewIssuePanel {
 
   private render(): void {
     const { projects, statuses, priorities, defaultProjectId } = this.ctx;
-    const projectRefs: NamedRef[] = projects.map((p) => ({ id: p.id, name: p.name }));
-    const doneOptions = Array.from({ length: 11 }, (_, i) => i * 10)
-      .map((v) => `<option value="${v}">${v}%</option>`)
-      .join("");
-
-    this.panel.webview.html = `<!DOCTYPE html>
+    const init: NewIssueInit = {
+      projects: projects.map((p) => ({ id: p.id, name: p.name })),
+      statuses,
+      priorities,
+      defaultProjectId,
+    };
+    const webview = this.panel.webview;
+    const nonce = randomBytes(16).toString("hex");
+    const scriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.ctx.extensionUri, "dist", "webview", "newIssue.js"),
+    );
+    // Svelte 앱 셸 — UI/클라 로직은 src/webviewUi/newIssue. init은 nonce 인라인 JSON(패널 재표시 시에도 생존).
+    webview.html = `<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<style>
-  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0 1.5em 2em; max-width: 60em; }
-  h1 { font-size: 1.2em; }
-${sharedCss}
-  #subject { width: 100%; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: .7em; margin: .8em 0; }
-  label { display: flex; flex-direction: column; gap: .25em; font-size: .85em; color: var(--vscode-descriptionForeground); }
-  label.inline { flex-direction: row; align-items: center; gap: .4em; }
-  textarea { width: 100%; min-height: 250px; resize: vertical; }
-  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: .45em 1.2em; border-radius: 3px; cursor: pointer; }
-  .row { display: flex; gap: 1em; align-items: center; margin-top: .8em; }
-  .chip {
-    display: inline-block; margin: 0 .35em .3em 0; padding: .15em .6em; border-radius: 10px;
-    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
-    font-size: .85em; cursor: pointer;
-  }
-  .req { border-left: 2px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground)); padding-left: .5em; }
-  .req .cap::after { content: " *"; color: var(--vscode-errorForeground); }
-  .invalid { outline: 2px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground)); outline-offset: 1px; border-radius: 3px; }
-</style>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
 </head>
 <body>
-  <h1>새 일감 만들기</h1>
-  <div class="grid">
-    <label class="req"><span class="cap">프로젝트</span> <select id="project">${options(projectRefs, defaultProjectId)}</select></label>
-    <label class="req"><span class="cap">유형</span> <select id="tracker"></select></label>
-    <label>상태 <select id="status">${options(statuses)}</select></label>
-    <label>우선순위 <select id="priority">${options(priorities)}</select></label>
-  </div>
-  <label class="req"><span class="cap">제목</span> <input id="subject"></label>
-  <div class="grid" style="margin-top:.8em">
-    <label>담당자 <select id="assignee"><option value="">(없음)</option></select></label>
-    <label>범주 <select id="category"><option value="">(없음)</option></select></label>
-    <label>상위 일감 # <input type="number" id="parent" min="1"></label>
-    <label>시작일 <input type="date" id="start"></label>
-    <label>예정일 <input type="date" id="due"></label>
-    <label>추정시간 <input type="number" id="estimated" min="0" step="0.5"></label>
-    <label>진척도 <select id="done">${doneOptions}</select></label>
-    <label class="inline"><input type="checkbox" id="private"> 비공개</label>
-  </div>
-  <label>설명 <textarea id="description" placeholder="이미지 붙여넣기 가능"></textarea></label>
-  <div id="files" style="margin-top:.5em"></div>
-  <div class="row">
-    <button onclick="create(this)">저장</button>
-    <button onclick="vscode.postMessage({command:'pickFiles'})">파일 첨부</button>
-  </div>
-
-  <script>
-    const vscode = acquireVsCodeApi();
-    const val = (id) => document.getElementById(id).value;
-    const fill = (id, items, empty) => {
-      const el = document.getElementById(id);
-      el.textContent = "";
-      if (empty) el.appendChild(new Option(empty, ""));
-      for (const item of items) el.appendChild(new Option(item.name, item.id));
-    };
-    document.getElementById("project").addEventListener("change", loadProject);
-    function loadProject() {
-      vscode.postMessage({ command: "loadProject", projectId: Number(val("project")) });
-    }
-    function renderFiles(names) {
-      const el = document.getElementById("files");
-      el.textContent = "";
-      names.forEach((n, i) => {
-        const chip = document.createElement("span");
-        chip.className = "chip";
-        chip.textContent = n + " ✕";
-        chip.onclick = () => vscode.postMessage({ command: "removeFile", index: i });
-        el.appendChild(chip);
-      });
-    }
-    document.getElementById("description").addEventListener("paste", (e) => {
-      const items = e.clipboardData && e.clipboardData.items;
-      if (!items) return;
-      for (const item of items) {
-        if (!item.type.startsWith("image/")) continue;
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (!file) continue;
-        const ext = (item.type.split("/")[1] || "png").replace("jpeg", "jpg").split("+")[0];
-        const ts = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
-        const reader = new FileReader();
-        reader.onload = () => {
-          vscode.postMessage({ command: "pasteImage", name: "paste-" + ts + "." + ext, base64: String(reader.result).split(",")[1] });
-        };
-        reader.readAsDataURL(file);
-      }
-    });
-    window.addEventListener("message", (e) => {
-      const msg = e.data;
-      if (msg.command === "projectData") {
-        fill("tracker", msg.trackers);
-        fill("assignee", msg.assignees, "(없음)");
-        fill("category", msg.categories, "(없음)");
-      } else if (msg.command === "files") {
-        renderFiles(msg.names);
-      } else if (msg.command === "idle") {
-        document.querySelectorAll("button").forEach((b) => { b.classList.remove("busy"); b.disabled = false; });
-      }
-    });
-    function markInvalid(el) {
-      el.classList.add("invalid");
-      const clear = () => el.classList.remove("invalid");
-      el.addEventListener("input", clear, { once: true });
-      el.addEventListener("change", clear, { once: true });
-    }
-    function create(btn) {
-      // 필수(프로젝트/유형/제목) 미입력 → 저장 차단 + 첫 미입력 필드 포커스·강조
-      for (const id of ["project", "tracker", "subject"]) {
-        const el = document.getElementById(id);
-        if (!String(el.value).trim()) {
-          markInvalid(el);
-          el.focus();
-          el.scrollIntoView({ block: "center" });
-          return;
-        }
-      }
-      btn.classList.add("busy"); btn.disabled = true;
-      vscode.postMessage({
-        command: "create",
-        projectId: val("project"),
-        trackerId: val("tracker"),
-        statusId: val("status"),
-        priorityId: val("priority"),
-        subject: val("subject"),
-        description: val("description"),
-        assignedToId: val("assignee"),
-        categoryId: val("category"),
-        parentIssueId: val("parent"),
-        startDate: val("start"),
-        dueDate: val("due"),
-        estimatedHours: val("estimated"),
-        doneRatio: val("done"),
-        isPrivate: document.getElementById("private").checked,
-      });
-    }
-    loadProject(); // 초기 프로젝트 데이터
-  </script>
+  <script nonce="${nonce}">window.__INIT__=${JSON.stringify(init).replace(/</g, "\\u003c")};</script>
+  <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
   }

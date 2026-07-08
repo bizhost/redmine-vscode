@@ -1,4 +1,13 @@
-import type { Issue, IssueStatus, NamedRef, Project, SearchResult } from "./types.js";
+import type {
+  CurrentUser,
+  Issue,
+  IssueStatus,
+  NamedRef,
+  Project,
+  SearchResult,
+  TimeEntry,
+  TimeEntryActivity,
+} from "./types.js";
 
 export interface RedmineClientOptions {
   url: string;
@@ -100,6 +109,16 @@ export class RedmineClient {
       `/issues/${id}.json?include=journals,attachments,children,relations,changesets`,
     );
     return data.issue;
+  }
+
+  /** 현재 API 키 소유 사용자 — 표시명(이름 우선, 없으면 login) */
+  async getCurrentUser(): Promise<CurrentUser> {
+    const data = await this.request<{
+      user: { id: number; login?: string; firstname?: string; lastname?: string };
+    }>("/users/current.json");
+    const u = data.user;
+    const name = [u.firstname, u.lastname].filter(Boolean).join(" ") || u.login || `user#${u.id}`;
+    return { id: u.id, name };
   }
 
   async listStatuses(): Promise<IssueStatus[]> {
@@ -214,6 +233,56 @@ export class RedmineClient {
       throw new RedmineApiError(res.status, `첨부 다운로드 실패 ${res.status}`);
     }
     return res.arrayBuffer();
+  }
+
+  /** 소요시간 조회. userId 'me'/숫자, 미지정=권한 내 전체. 페이지 루프로 전량 수집(안전 상한 1000) */
+  async listTimeEntries(
+    options: { from?: string; to?: string; userId?: number | "me"; offset?: number } = {},
+  ): Promise<{ entries: TimeEntry[]; truncated: boolean }> {
+    const PAGE = 100; // Redmine limit 상한
+    const CAP = 1000; // 안전 상한
+    const entries: TimeEntry[] = [];
+    let offset = options.offset ?? 0;
+    let total = 0;
+    while (entries.length < CAP) {
+      const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset) });
+      if (options.from) params.set("from", options.from);
+      if (options.to) params.set("to", options.to);
+      if (options.userId !== undefined) params.set("user_id", String(options.userId));
+      const data = await this.request<{ time_entries: TimeEntry[]; total_count?: number }>(
+        `/time_entries.json?${params}`,
+      );
+      entries.push(...data.time_entries);
+      total = data.total_count ?? entries.length;
+      offset += data.time_entries.length;
+      if (data.time_entries.length === 0 || entries.length >= total) break;
+    }
+    return { entries: entries.slice(0, CAP), truncated: total > CAP };
+  }
+
+  async createTimeEntry(entry: {
+    issueId: number;
+    hours: number;
+    activityId?: number;
+    comments?: string;
+    spentOn?: string;
+  }): Promise<TimeEntry> {
+    const timeEntry: Record<string, unknown> = { issue_id: entry.issueId, hours: entry.hours };
+    if (entry.activityId !== undefined) timeEntry.activity_id = entry.activityId;
+    if (entry.comments) timeEntry.comments = entry.comments;
+    if (entry.spentOn) timeEntry.spent_on = entry.spentOn;
+    const data = await this.request<{ time_entry: TimeEntry }>("/time_entries.json", {
+      method: "POST",
+      body: JSON.stringify({ time_entry: timeEntry }),
+    });
+    return data.time_entry;
+  }
+
+  async listTimeEntryActivities(): Promise<TimeEntryActivity[]> {
+    const data = await this.request<{ time_entry_activities: TimeEntryActivity[] }>(
+      "/enumerations/time_entry_activities.json",
+    );
+    return data.time_entry_activities;
   }
 
   async updateIssue(id: number, changes: UpdateIssueChanges): Promise<void> {

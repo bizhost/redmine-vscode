@@ -85,3 +85,24 @@ export interface IssueStatus {
   name: string;
   is_closed?: boolean;
 }
+
+export interface CurrentUser {
+  id: number;
+  name: string;
+}
+
+export interface TimeEntry {
+  id: number;
+  issue?: { id: number };
+  user?: NamedRef;
+  activity?: NamedRef;
+  hours: number;
+  spent_on: string;
+  comments?: string;
+}
+
+export interface TimeEntryActivity {
+  id: number;
+  name: string;
+  is_default?: boolean;
+}

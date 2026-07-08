@@ -157,6 +157,11 @@ function applyClient(issues: Issue[], c: ClientFilters): Issue[] {
 // 단일 웹뷰 앱 — 좌측 레일(일감/소요시간/커밋) 내부 전환, 필터 공유. ↗ pop-out은 동일 앱을 에디터 탭에 재호스팅.
 export class PanelView implements vscode.WebviewViewProvider {
   static readonly viewId = "redminePanel";
+  private static outCh?: vscode.OutputChannel;
+  static log(): vscode.OutputChannel {
+    if (!this.outCh) this.outCh = vscode.window.createOutputChannel("Redmine");
+    return this.outCh;
+  }
   private view?: vscode.WebviewView;
   private panel?: vscode.WebviewPanel;
   private gens = new WeakMap<vscode.Webview, number>(); // 웹뷰별 stale 응답 폐기
@@ -172,6 +177,7 @@ export class PanelView implements vscode.WebviewViewProvider {
   constructor(private readonly getClient: () => Promise<RedmineClient | undefined>) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
+    PanelView.log().appendLine(`[host] resolveWebviewView visible=${view.visible}`);
     this.view = view;
     view.webview.options = { enableScripts: true };
     view.webview.html = buildHtml();
@@ -245,8 +251,12 @@ export class PanelView implements vscode.WebviewViewProvider {
 
   private wire(webview: vscode.Webview): void {
     webview.onDidReceiveMessage(async (msg: Record<string, unknown>) => {
+      PanelView.log().appendLine(`[host] recv ${String(msg.command)}${msg.view ? " view=" + String(msg.view) : ""}`);
       try {
         switch (msg.command) {
+          case "jsError":
+            PanelView.log().appendLine(`[webview] ${String(msg.message)}`);
+            break;
           case "load":
             await this.load(webview, msg.view as string, msg.filters as Filters, Number(msg.offset) || 0);
             break;
@@ -313,6 +323,7 @@ export class PanelView implements vscode.WebviewViewProvider {
             break;
         }
       } catch (err) {
+        PanelView.log().appendLine(`[host] handler error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
         void webview.postMessage({ command: "error", message: err instanceof Error ? err.message : String(err) });
       }
     });
@@ -330,6 +341,7 @@ export class PanelView implements vscode.WebviewViewProvider {
     this.gens.set(webview, gen);
     const alive = (): boolean => this.gens.get(webview) === gen;
     const send = (m: object): void => {
+      PanelView.log().appendLine(`[host] send data view=${view} alive=${alive()}`);
       if (alive()) void webview.postMessage({ command: "data", view, ...m });
     };
     if (view === "commits") {
@@ -699,7 +711,8 @@ export class PanelView implements vscode.WebviewViewProvider {
 }
 
 function buildHtml(): string {
-  return `<!DOCTYPE html>
+  // String.raw: 웹뷰 JS의 \n·\d 등이 TS 템플릿 이스케이프로 소실되는 것 방지 (실제 SyntaxError 사고 이력)
+  return String.raw`<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
@@ -820,6 +833,10 @@ function buildHtml(): string {
 </div>
 <script>
 const vscode = acquireVsCodeApi();
+// 웹뷰 JS 에러 → 호스트 OutputChannel(출력 탭 "Redmine")로 표면화
+window.onerror=function(msg,src,line,col,err){ try{ vscode.postMessage({command:"jsError",message:String(msg)+" @"+line+":"+col+(err&&err.stack?"\n"+err.stack:"")}); }catch(e){} };
+window.addEventListener("unhandledrejection",function(e){ try{ vscode.postMessage({command:"jsError",message:"unhandledrejection: "+String(e.reason)}); }catch(x){} });
+vscode.postMessage({command:"jsError",message:"[boot] webview script started"});
 const S = vscode.getState() || {
   view:"issues",
   filters:{project:"",status:"open",assignee:"me",search:"",period:"7",repo:0,branch:"",linkedOnly:true},
@@ -1089,7 +1106,7 @@ function renderTime(d){
     tbl.appendChild(tr);
   }
   right.appendChild(tbl);
-  content.appendChild(right);
+  attachAside(content,right);
   document.getElementById("foot").innerHTML="";
   S.last.time=d; save();
 }

@@ -321,6 +321,10 @@ export class PanelView implements vscode.WebviewViewProvider {
           case "openCommitRevision":
             this.openCommitRevision(String(msg.hash));
             break;
+          case "copyText":
+            await vscode.env.clipboard.writeText(String(msg.text));
+            void vscode.window.setStatusBarMessage("복사됨", 1500);
+            break;
         }
       } catch (err) {
         PanelView.log().appendLine(`[host] handler error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
@@ -782,6 +786,28 @@ function buildHtml(): string {
   .chg{display:inline-flex;gap:1px;height:7px;vertical-align:middle;margin-right:5px;}
   .chg i{display:block;border-radius:1px;}
   .chg .a{background:var(--dn);}.chg .d{background:var(--late);}
+  .ga{color:var(--vscode-gitDecoration-addedResourceForeground,#81b88b);}
+  .gd{color:var(--vscode-gitDecoration-deletedResourceForeground,#c74e39);}
+  .gm{color:var(--vscode-gitDecoration-modifiedResourceForeground,#e2c08d);}
+  .fst{width:14px;flex:none;font-weight:700;text-align:center;}
+  .file .dir{color:var(--vscode-descriptionForeground);font-size:10px;margin-left:6px;}
+  .file .fnum{flex:none;font-size:10px;}
+  .hcard .who{font-weight:600;}
+  .hcard .abs{font-style:italic;}
+  .hcard .subj{font-weight:600;margin-top:4px;}
+  .av{width:22px;height:22px;border-radius:50%;background:var(--vscode-button-background);color:var(--vscode-button-foreground);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex:none;}
+  .cdhead{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+  .cdhead .who{color:var(--vscode-textLink-foreground);font-weight:600;}
+  .cdrow{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:6px;flex-wrap:wrap;}
+  .brchip{display:inline-flex;align-items:center;border:1px solid var(--vscode-panel-border);border-radius:3px;padding:0 7px;font-size:11px;color:var(--vscode-textLink-foreground);}
+  .msgbox{position:relative;background:var(--vscode-editorWidget-background,var(--vscode-input-background));border:1px solid var(--vscode-panel-border,transparent);border-radius:3px;padding:8px 26px 8px 10px;font-size:12px;margin-bottom:8px;}
+  .msgbox .subj{font-weight:600;}
+  .msgbox .body{margin-top:4px;color:var(--vscode-descriptionForeground);white-space:pre-wrap;word-break:break-word;}
+  .msgbox .cpy{position:absolute;right:6px;top:6px;cursor:pointer;color:var(--vscode-descriptionForeground);}
+  .msgbox .cpy:hover{color:var(--vscode-foreground);}
+  .fh{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--vscode-foreground);margin:10px 0 6px;display:flex;align-items:center;gap:6px;}
+  .fh .cnt{background:var(--vscode-badge-background);color:var(--vscode-badge-foreground);border-radius:8px;padding:0 6px;font-size:10px;}
+  input.ffilter{width:100%;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-dropdown-border));border-radius:2px;padding:3px 8px;font-size:11px;font-family:inherit;margin-bottom:6px;box-sizing:border-box;}
   tr.wip td{background:var(--vscode-editorWidget-background,var(--vscode-input-background));font-weight:600;}
   .file{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;gap:8px;}
   .file .fn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -978,7 +1004,9 @@ function issueRow(r){
     bl.appendChild(el("span","badge id","#"+r.id)); bl.appendChild(el("span","badge st "+r.cat,r.status)); if(r.priority)bl.appendChild(el("span","badge pr",r.priority));
     c.appendChild(bl);
     const t=el("div",null,r.subject); t.style.fontWeight="600"; c.appendChild(t);
-    c.appendChild(el("div","m",[r.project,r.assignee!=="—"?r.assignee:null,r.due.text!=="—"?"예정 "+r.due.text:null].filter(Boolean).join(" · ")));
+    const meta=el("div","m",[r.project,r.assignee!=="—"?r.assignee:null].filter(Boolean).join(" · "));
+    if(r.due.text!=="—") meta.appendChild(el("span",r.due.cls||null," · 예정 "+r.due.text));
+    c.appendChild(meta);
     c.appendChild(el("div","m","진척 "+(r.done||0)+"% · 갱신 "+r.updated));
   });
   return tr;
@@ -1199,7 +1227,7 @@ function renderCommits(d){
   wip.appendChild(el("td",null,"작업 중 변경 ("+w.fileCount+"개 파일)"));
   const wc=el("td"); const link=el("button","btn ghost","# 일감 연결…"); link.style.cssText="font-size:10px;padding:1px 8px;"; link.onclick=()=>post({command:"insertRef"}); wc.appendChild(link); wip.appendChild(wc);
   wip.appendChild(el("td","dim","—")); wip.appendChild(el("td","dim","지금"));
-  wip.appendChild(changeCell(w.added,w.deleted));
+  wip.appendChild(changeCell(w.added,w.deleted,w.modified));
   wip.style.cursor="pointer"; wip.title="클릭하면 변경 파일 목록";
   wip.onclick=()=>{ S.selHash=null; save(); post({command:"selectWorking",repoPath:d.repoPath}); document.querySelectorAll("tr.row").forEach(x=>x.classList.remove("sel")); };
   tbl.appendChild(wip);
@@ -1215,9 +1243,19 @@ function renderCommits(d){
     tr.onclick=()=>{ S.selHash=c.hash; save(); post({command:"selectCommit",repoPath:d.repoPath,hash:c.hash,issueId:c.issueIds[0]}); document.querySelectorAll("tr.row").forEach(x=>x.classList.remove("sel")); tr.classList.add("sel"); };
     tr.oncontextmenu=(e)=>{ e.preventDefault(); commitMenu(e,d,c); };
     hoverable(tr,(cd)=>{
-      cd.appendChild(el("div","m",c.author+" · "+c.date+" ("+new Date(c.dateIso).toLocaleString()+")"));
-      const l2=el("div",null,c.shortHash+"  +"+c.added+" −"+c.deleted+" ("+c.files+" files)"); l2.style.fontFamily="monospace"; cd.appendChild(l2);
-      const msg=el("div","msg",c.subject+(c.body?"\n\n"+c.body:"")); cd.appendChild(msg);
+      const l1=el("div");
+      l1.appendChild(el("span","who",c.author));
+      l1.appendChild(el("span","m"," · "+c.date+" "));
+      l1.appendChild(el("span","m abs","("+new Date(c.dateIso).toLocaleString()+")"));
+      cd.appendChild(l1);
+      const l2=el("div"); l2.style.fontFamily="monospace";
+      l2.appendChild(el("span","dim",c.shortHash+"  "));
+      l2.appendChild(el("span","ga","+"+c.added));
+      l2.appendChild(el("span","gd"," −"+c.deleted));
+      l2.appendChild(el("span","m"," ("+c.files+" files)"));
+      cd.appendChild(l2);
+      cd.appendChild(el("div","subj",c.subject));
+      if(c.body) cd.appendChild(el("div","msg",c.body));
     });
     tbl.appendChild(tr);
   }
@@ -1226,13 +1264,44 @@ function renderCommits(d){
   document.getElementById("foot").innerHTML=""; document.getElementById("foot").appendChild(el("span",null,d.commits.length+"개 커밋"));
   S.last.commits=d; save();
 }
-function changeCell(a,dn){
+function changeCell(a,dn,mod){
   const td=el("td"); const chg=el("span","chg");
   const scale=v=>Math.max(v>0?2:0,Math.min(40,Math.round(v/4)));
   const ai=el("i","a"); ai.style.width=scale(a)+"px"; ai.style.height="7px";
   const di=el("i","d"); di.style.width=scale(dn)+"px"; di.style.height="7px";
   if(a)chg.appendChild(ai); if(dn)chg.appendChild(di); td.appendChild(chg);
-  td.appendChild(el("span","dim","+"+a+" −"+dn)); return td;
+  td.appendChild(el("span","ga","+"+a));
+  if(mod!=null) td.appendChild(el("span","gm"," ~"+mod));
+  td.appendChild(el("span","gd"," −"+dn));
+  return td;
+}
+// 상태문자 색: 추가·신규=초록, 삭제=빨강, 그 외(M/R/C)=노랑
+function stCls(s){ return (s==="A"||s==="?")?"ga":(s==="D"?"gd":"gm"); }
+// 래퍼런스앱식 파일 행: [파일명 + 경로(dim)] [+n −n] [상태]
+function fileRow(f,onDiff){
+  const row=el("div","file");
+  const fn=el("span","fn"); const idx=f.path.lastIndexOf("/");
+  fn.appendChild(el("span",null,idx<0?f.path:f.path.slice(idx+1)));
+  if(idx>0) fn.appendChild(el("span","dir",f.path.slice(0,idx)));
+  fn.style.cursor="pointer"; fn.title="diff 열기"; fn.onclick=onDiff;
+  row.appendChild(fn);
+  const num=el("span","fnum");
+  num.appendChild(el("span","ga","+"+(f.added||0)));
+  num.appendChild(el("span","gd"," −"+(f.deleted||0)));
+  row.appendChild(num);
+  row.appendChild(el("span","fst "+stCls(f.status),f.status));
+  return row;
+}
+// FILES CHANGED 헤더 + 필터 인풋 + 행 목록 (래퍼런스앱 FILES CHANGED 대응)
+function fileList(a,title,files,rowFor){
+  const fh=el("div","fh",title); fh.appendChild(el("span","cnt",String(files.length))); a.appendChild(fh);
+  const flt=el("input","ffilter"); flt.placeholder="Filter files..."; a.appendChild(flt);
+  const box=el("div"); a.appendChild(box);
+  const draw=()=>{ box.innerHTML=""; const q=flt.value.toLowerCase();
+    files.filter(f=>!q||f.path.toLowerCase().includes(q)).forEach(f=>box.appendChild(rowFor(f)));
+    if(!files.length) box.appendChild(el("div","dim","변경 없음"));
+  };
+  flt.oninput=draw; draw();
 }
 function commitMenu(e,d,c){
   const items=[];
@@ -1244,15 +1313,35 @@ function commitMenu(e,d,c){
 function renderCommitDetail(m){
   const a=document.getElementById("commitAside"); if(!a) return; a.innerHTML="";
   const d=S.last.commits; const c=(d&&d.commits||[]).find(x=>x.hash===m.hash);
-  a.appendChild(el("h3",null,(c?c.shortHash+" · "+c.author+" · "+c.date:m.hash.slice(0,7))));
-  if(c) a.appendChild(el("div","box",c.subject));
-  const act0=el("div"); act0.style.margin="4px 0 8px";
-  act0.appendChild(mkBtn("↗ 원격","ghost",()=>post({command:"openCommitRemote",repoPath:d.repoPath,hash:m.hash})));
-  if(d&&d.hasRevision) act0.appendChild(mkBtn("Redmine 리비전","ghost",()=>post({command:"openCommitRevision",hash:m.hash})));
-  a.appendChild(act0);
-  a.appendChild(el("h3",null,"변경 파일 ("+m.files.length+")"));
-  m.files.forEach(f=>{ const row=el("div","file"); row.appendChild(el("span","fn",f.path));
-    const st=el("span","stt",f.status+" · diff"); st.onclick=()=>post({command:"diffFile",repoPath:d.repoPath,hash:m.hash,file:f.path}); row.appendChild(st); a.appendChild(row); });
+  if(c){
+    // 헤더: 아바타 + 작성자 + 상대시간
+    const hd=el("div","cdhead");
+    const ini=(c.author||"?").trim().split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
+    hd.appendChild(el("span","av",ini));
+    hd.appendChild(el("span","who",c.author));
+    hd.appendChild(el("span","dim",c.date));
+    a.appendChild(hd);
+    // 커밋 행: ◇sha + 브랜치 칩 + 색 스탯
+    const cr=el("div","cdrow");
+    const sh=el("span","dim","◇ "+c.shortHash); sh.style.fontFamily="monospace"; sh.style.cursor="pointer"; sh.title="SHA 복사"; sh.onclick=()=>post({command:"copyText",text:m.hash}); cr.appendChild(sh);
+    if(d.branch) cr.appendChild(el("span","brchip","⎇ "+d.branch));
+    cr.appendChild(el("span","spacer"));
+    cr.appendChild(el("span","ga","+"+c.added));
+    cr.appendChild(el("span","gm","✎"+c.files));
+    cr.appendChild(el("span","gd","−"+c.deleted));
+    a.appendChild(cr);
+    // 메시지 박스 (제목 굵게 + 본문 + 복사)
+    const mb=el("div","msgbox");
+    mb.appendChild(el("div","subj",c.subject));
+    if(c.body) mb.appendChild(el("div","body",c.body));
+    const cp=el("span","cpy","⧉"); cp.title="메시지 복사"; cp.onclick=()=>post({command:"copyText",text:c.subject+(c.body?"\n\n"+c.body:"")}); mb.appendChild(cp);
+    a.appendChild(mb);
+    const act0=el("div"); act0.style.margin="0 0 4px";
+    act0.appendChild(mkBtn("↗ 원격","ghost",()=>post({command:"openCommitRemote",repoPath:d.repoPath,hash:m.hash})));
+    if(d.hasRevision) act0.appendChild(mkBtn("Redmine 리비전","ghost",()=>post({command:"openCommitRevision",hash:m.hash})));
+    a.appendChild(act0);
+  } else a.appendChild(el("h3",null,m.hash.slice(0,7)));
+  fileList(a,"Files Changed",m.files,f=>fileRow(f,()=>post({command:"diffFile",repoPath:d.repoPath,hash:m.hash,file:f.path})));
   if(m.issue){ const card=el("div","card");
     card.appendChild(el("span","badge st "+m.issue.cat,m.issue.status)); const b=el("b","link","#"+m.issue.id); b.onclick=()=>post({command:"open",id:m.issue.id}); card.appendChild(b); card.appendChild(document.createTextNode(" "+m.issue.subject));
     if(m.issue.meta) card.appendChild(el("div","m",m.issue.meta));
@@ -1263,10 +1352,7 @@ function renderCommitDetail(m){
 function renderWorkingDetail(m){
   const a=document.getElementById("commitAside"); if(!a) return; a.innerHTML="";
   const d=S.last.commits;
-  a.appendChild(el("h3",null,"작업 중 변경 ("+m.files.length+")"));
-  if(!m.files.length) a.appendChild(el("div","dim","변경 없음"));
-  m.files.forEach(f=>{ const row=el("div","file"); row.appendChild(el("span","fn",f.path));
-    const st=el("span","stt",f.status+" · diff"); st.onclick=()=>post({command:"diffWorkingFile",repoPath:d.repoPath,file:f.path,del:f.del}); row.appendChild(st); a.appendChild(row); });
+  fileList(a,"작업 중 변경",m.files,f=>fileRow(f,()=>post({command:"diffWorkingFile",repoPath:d.repoPath,file:f.path,del:f.del})));
 }
 
 // ---- shared ui ----

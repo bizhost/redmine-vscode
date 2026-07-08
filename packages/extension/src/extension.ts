@@ -303,7 +303,7 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     ),
 
-    // SCM 커밋 입력창에 내 일감 #번호 삽입 (GitLens Associate Issue 대응)
+    // SCM 커밋 입력창에 내 일감 #번호 삽입 (래퍼런스앱 Associate Issue 대응)
     vscode.commands.registerCommand("redmine.insertIssueRef", async () => {
       try {
         const ext = vscode.extensions.getExtension("vscode.git");

@@ -150,6 +150,7 @@ export async function gitLog(
 
 export interface WorkingChanges {
   fileCount: number;
+  modified: number;
   added: number;
   deleted: number;
 }
@@ -164,15 +165,18 @@ export async function gitWorkingChanges(cwd: string): Promise<WorkingChanges> {
       .then((r) => r.stdout)
       .catch(() => ""),
   ]);
-  const fileCount = porcelain.split("\n").filter((l) => l.trim()).length;
+  const lines = porcelain.split("\n").filter((l) => l.trim());
+  const modified = lines.filter((l) => l.slice(0, 2).includes("M")).length;
   const { added, deleted } = sumNumstat(diff.split("\n"));
-  return { fileCount, added, deleted };
+  return { fileCount: lines.length, modified, added, deleted };
 }
 
 export interface WorkingFile {
   path: string;
   status: string; // 표시용 단일 문자 M/A/D/R/?
   del: boolean; // 워킹트리 삭제 → diff 우측 빈 문서
+  added: number;
+  deleted: number;
 }
 
 // 따옴표 경로(비ASCII/공백) → C-escape 최소 해제
@@ -183,24 +187,39 @@ function unquotePorcelain(s: string): string {
   return s;
 }
 
-// 작업 중 변경 파일 목록 (porcelain). 파일 수는 gitWorkingChanges와 동일 기준.
+// 작업 중 변경 파일 목록 (porcelain) + 파일별 ± (HEAD 대비 numstat, untracked는 0)
 export async function gitWorkingFiles(cwd: string): Promise<WorkingFile[]> {
-  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
-    cwd,
-    maxBuffer: MAXBUF,
-  }).catch(() => ({ stdout: "" }));
+  const [porcelain, num] = await Promise.all([
+    execFileAsync("git", ["status", "--porcelain"], { cwd, maxBuffer: MAXBUF })
+      .then((r) => r.stdout)
+      .catch(() => ""),
+    execFileAsync("git", ["diff", "HEAD", "--numstat"], { cwd, maxBuffer: MAXBUF })
+      .then((r) => r.stdout)
+      .catch(() => ""),
+  ]);
+  const stats = new Map<string, { added: number; deleted: number }>();
+  for (const line of num.split("\n")) {
+    const m = line.match(/^(\d+|-)\t(\d+|-)\t(.+)$/);
+    if (m) {
+      const p = unquotePorcelain(m[3].split("\t").pop() ?? m[3]);
+      stats.set(p, { added: m[1] === "-" ? 0 : Number(m[1]), deleted: m[2] === "-" ? 0 : Number(m[2]) });
+    }
+  }
   const files: WorkingFile[] = [];
-  for (const line of stdout.split("\n")) {
+  for (const line of porcelain.split("\n")) {
     if (!line.trim()) continue;
     const xy = line.slice(0, 2);
     let rest = line.slice(3);
     if (rest.includes(" -> ")) rest = rest.split(" -> ").pop() ?? rest; // 이름 변경 → 새 경로
     const p = unquotePorcelain(rest);
     const untracked = xy === "??";
+    const s = stats.get(p) ?? { added: 0, deleted: 0 };
     files.push({
       path: p,
       status: untracked ? "?" : xy.replace(/ /g, "")[0] ?? "M",
       del: !untracked && xy.includes("D"),
+      added: s.added,
+      deleted: s.deleted,
     });
   }
   return files;
@@ -209,18 +228,36 @@ export async function gitWorkingFiles(cwd: string): Promise<WorkingFile[]> {
 export interface CommitFile {
   status: string;
   path: string;
+  added: number;
+  deleted: number;
 }
 
 export async function gitCommitFiles(cwd: string, hash: string): Promise<CommitFile[]> {
-  const { stdout } = await execFileAsync(
-    "git",
-    ["show", "--name-status", "--format=", hash],
-    { cwd, maxBuffer: MAXBUF },
-  ).catch(() => ({ stdout: "" }));
+  const [ns, num] = await Promise.all([
+    execFileAsync("git", ["show", "--name-status", "--format=", hash], { cwd, maxBuffer: MAXBUF })
+      .then((r) => r.stdout)
+      .catch(() => ""),
+    execFileAsync("git", ["show", "--numstat", "--format=", hash], { cwd, maxBuffer: MAXBUF })
+      .then((r) => r.stdout)
+      .catch(() => ""),
+  ]);
+  // 파일별 +/- (바이너리 "-"는 0)
+  const stats = new Map<string, { added: number; deleted: number }>();
+  for (const line of num.split("\n")) {
+    const m = line.match(/^(\d+|-)\t(\d+|-)\t(.+)$/);
+    if (m) {
+      const p = m[3].split("\t").pop() ?? m[3];
+      stats.set(p, { added: m[1] === "-" ? 0 : Number(m[1]), deleted: m[2] === "-" ? 0 : Number(m[2]) });
+    }
+  }
   const files: CommitFile[] = [];
-  for (const line of stdout.split("\n")) {
+  for (const line of ns.split("\n")) {
     const m = line.match(/^([A-Z])\d*\t(.+)$/);
-    if (m) files.push({ status: m[1], path: m[2].split("\t").pop() ?? m[2] });
+    if (m) {
+      const p = m[2].split("\t").pop() ?? m[2];
+      const s = stats.get(p) ?? { added: 0, deleted: 0 };
+      files.push({ status: m[1], path: p, added: s.added, deleted: s.deleted });
+    }
   }
   return files;
 }

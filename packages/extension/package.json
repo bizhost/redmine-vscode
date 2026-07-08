@@ -2,7 +2,7 @@
   "name": "redmine-vscode",
   "displayName": "Redmine Issues",
   "description": "Redmine 일감 관리 — 목록/검색/상세/편집/댓글/첨부/다운로드",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "publisher": "bizhost",
   "license": "MIT",
   "repository": {

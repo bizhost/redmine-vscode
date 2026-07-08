@@ -3,6 +3,9 @@ import type { Issue, IssueStatus, ListIssuesOptions } from "@redmine-tools/core"
 
 export const PAGE_SIZE = 50;
 
+// 시크릿 스토어 키 — getClient/auth(extension)와 setApiKey(treeSetupCommands) 공용. 순환 회피 위해 여기 둠.
+export const SECRET_KEY = "redmine.apiKey";
+
 // 검색어 → listIssues 옵션. #번호는 직접조회(담당 무관), 그 외 제목 부분일치. 전체 상태 대상
 export function searchOpts(query: string): Partial<ListIssuesOptions> {
   const m = query.match(/^#?(\d+)$/);

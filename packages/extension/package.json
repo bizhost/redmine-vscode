@@ -173,6 +173,11 @@
         "icon": "$(link-external)"
       },
       {
+        "command": "redmine.openPanelTime",
+        "title": "Redmine: 소요시간 패널 열기",
+        "icon": "$(watch)"
+      },
+      {
         "command": "redmine.refreshPanel",
         "title": "Redmine: 패널 새로고침",
         "icon": "$(refresh)"
@@ -331,6 +336,10 @@
         {
           "command": "redmine.diffCommitFile",
           "when": "false"
+        },
+        {
+          "command": "redmine.openPanelTime",
+          "when": "false"
         }
       ]
     },
@@ -357,6 +366,39 @@
           "enum": ["project", "status", "none"],
           "default": "project",
           "description": "'내 일감' 트리 그룹 기준 (프로젝트/상태/그룹없음)"
+        },
+        "redmine.sidebar.showTodayTime": {
+          "type": "boolean",
+          "default": true,
+          "description": "사이드바 상단 '오늘 소요시간' 스트립 표시 (끄면 트리만 표시)"
+        },
+        "redmine.panel.showBadge": {
+          "type": "boolean",
+          "default": true,
+          "description": "패널 탭 배지 표시 — 기한 임박 + 지연 일감 수"
+        },
+        "redmine.commits.linkedOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "커밋 뷰에서 일감(#번호) 연결 커밋만 기본 표시 (뷰에서 일시 전환 가능)"
+        },
+        "redmine.search.defaultAssignee": {
+          "type": "string",
+          "enum": ["me", "all"],
+          "default": "me",
+          "description": "일감 검색 기본 담당자 (나/전체)"
+        },
+        "redmine.search.defaultStatus": {
+          "type": "string",
+          "enum": ["open", "all"],
+          "default": "open",
+          "description": "일감 검색 기본 상태 (진행 중만/전체)"
+        },
+        "redmine.search.defaultSort": {
+          "type": "string",
+          "enum": ["updated", "due", "priority"],
+          "default": "updated",
+          "description": "일감 검색 기본 정렬 (수정일/기한/우선순위)"
         }
       }
     }

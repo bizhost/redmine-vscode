@@ -4,10 +4,11 @@ export const panelClientJs = String.raw`const vscode = acquireVsCodeApi();
 window.onerror=function(msg,src,line,col,err){ try{ vscode.postMessage({command:"jsError",message:String(msg)+" @"+line+":"+col+(err&&err.stack?"\n"+err.stack:"")}); }catch(e){} };
 window.addEventListener("unhandledrejection",function(e){ try{ vscode.postMessage({command:"jsError",message:"unhandledrejection: "+String(e.reason)}); }catch(x){} });
 vscode.postMessage({command:"jsError",message:"[boot] webview script started"});
+const FRESH = !vscode.getState(); // 신규 웹뷰 → 호스트 defaults로 필터 시드(최초 1회)
 const S = vscode.getState() || {
   view:"issues",
-  filters:{project:"",status:"open",assignee:"me",search:"",period:"7",repo:0,branch:"",linkedOnly:true},
-  sort:{col:"updated",dir:"desc"}, offset:0, selId:null, selHash:null, asideW:null, chartMode:"bar", last:{}
+  filters:{project:"",status:"open",assignee:"me",search:"",period:"7",repo:0,branch:"",linkedOnly:false},
+  sort:{col:"updated",dir:"desc"}, offset:0, selId:null, selHash:null, asideW:null, chartMode:"bar", last:{}, seeded:false
 };
 function save(){ vscode.setState(S); }
 function el(t,c,x){ const e=document.createElement(t); if(c)e.className=c; if(x!=null)e.textContent=x; return e; }
@@ -21,8 +22,23 @@ document.querySelectorAll(".rail span").forEach(s=>{
 });
 function syncRail(){ document.querySelectorAll(".rail span").forEach(s=>s.classList.toggle("on", s.dataset.view===S.view)); }
 function showLoading(){ document.getElementById("content").innerHTML='<div class="pad dim">불러오는 중...</div>'; document.getElementById("strip").innerHTML=""; document.getElementById("bar").innerHTML=""; document.getElementById("foot").innerHTML=""; }
-const VIEW_DESC={issues:"일감 — 검색·필터 탐색, 행 클릭=상세, 우클릭=액션",time:"소요시간 — 기간·작업자별 작업시간 집계",commits:"커밋 — 워크스페이스 커밋 ↔ #일감 연결, 파일 클릭=diff"};
+const VIEW_DESC={issues:"일감 — 검색·필터 탐색, 행 클릭=상세, 우클릭=액션",time:"소요시간 — 기간·작업자별 작업시간 집계",commits:"커밋 — 워크스페이스 커밋 ↔ #일감 연결, 파일 클릭=diff",options:"옵션 — 표시·검색 기본값 (redmine.* 설정과 동기화)"};
 function stripDesc(){ return el("span","vdesc",VIEW_DESC[S.view]||""); }
+// 레일 배지(기한임박+지연 수). 빈 문자열=CSS :empty로 숨김. 값 0/undefined도 숨김.
+function applyRailBadge(n){ const b=document.getElementById("railBadge"); if(b) b.textContent=n?String(n):""; }
+function sortFromDefault(s){ if(s==="due") return {col:"due",dir:"asc"}; if(s==="priority") return {col:"priority",dir:"desc"}; return {col:"updated",dir:"desc"}; }
+// 최초 로드 시 호스트 defaults를 필터에 시드. 값 변경 시 true 반환(재조회 필요) — 호출부가 렌더 대신 재로드.
+function seedDefaults(df){
+  S.seeded=true;
+  const before=JSON.stringify([S.filters.assignee,S.filters.status,S.filters.linkedOnly,S.sort]);
+  if(df.assignee) S.filters.assignee=df.assignee;
+  if(df.status) S.filters.status=df.status;
+  if(df.linkedOnly!=null) S.filters.linkedOnly=df.linkedOnly;
+  if(df.sort) S.sort=sortFromDefault(df.sort);
+  save();
+  if(JSON.stringify([S.filters.assignee,S.filters.status,S.filters.linkedOnly,S.sort])!==before){ S.offset=0; reqLoad(); return true; }
+  return false;
+}
 
 // ---- issues ----
 function renderIssues(d){
@@ -350,7 +366,7 @@ function renderCommits(d){
   const st0=document.getElementById("strip"); st0.className="bar strip"; st0.innerHTML=""; st0.appendChild(stripDesc());
   const bar=document.getElementById("bar"); bar.className="bar"; bar.innerHTML="";
   if((d.repos||[]).length>1) bar.appendChild(dd("저장소", String(d.repoIndex), d.repos.map((r,i)=>({id:String(i),name:r})), v=>{S.filters.repo=Number(v);S.filters.branch="";save();reqLoad();}));
-  if((d.branches||[]).length) bar.appendChild(dd("⎇", d.branch, d.branches.map(b=>({id:b,name:b})), v=>{S.filters.branch=v;save();reqLoad();}));
+  if((d.branches||[]).length){ const bopts=d.branches.map(b=>({id:b,name:b})); bopts.push({id:"--all",name:"--all (그래프)"}); bar.appendChild(dd("⎇", d.branch, bopts, v=>{S.filters.branch=v;save();reqLoad();})); }
   const search=el("input","search"); search.placeholder="커밋 검색 — 메시지 또는 #302"; search.value=S.filters.search;
   search.onkeydown=(e)=>{ if(e.key==="Enter"){ S.filters.search=search.value; save(); reqLoad(); } }; bar.appendChild(search);
   const cb=el("label","cb"); const box=el("input"); box.type="checkbox"; box.checked=S.filters.linkedOnly; box.onchange=()=>{S.filters.linkedOnly=box.checked;save();reqLoad();}; cb.appendChild(box); cb.appendChild(document.createTextNode("일감 연결만")); bar.appendChild(cb);
@@ -361,9 +377,15 @@ function renderCommits(d){
   const content=document.getElementById("content"); content.innerHTML="";
   if(!(d.repos||[]).length){ content.appendChild(el("div","pad dim","워크스페이스에 git 저장소 없음")); document.getElementById("foot").innerHTML=""; return; }
   const grid=el("div","grid");
-  const tbl=el("table"); const th=el("tr"); ["해시","메시지","일감","작성자","날짜","변경"].forEach(h=>th.appendChild(el("th",null,h))); tbl.appendChild(th);
+  // lane 그래프 컬럼: 전체 목록(비필터)일 때만 커밋에 graph 동봉 → 있으면 첫 컬럼 삽입. 컬럼 폭은 전 커밋 최대 lane수 기준 고정.
+  const hasGraph=(d.commits||[]).some(c=>c.graph);
+  let gw=0;
+  if(hasGraph){ let gmax=0; for(const c of d.commits){ if(!c.graph)continue; const g=c.graph; const m=Math.max(g.lane,...(g.up||[]),...(g.down||[]),...(g.thru||[])); if(m>gmax)gmax=m; } gw=(gmax+1)*14+8; }
+  const tbl=el("table"); if(hasGraph)tbl.className="graph";
+  const th=el("tr"); (hasGraph?["",...["해시","메시지","일감","작성자","날짜","변경"]]:["해시","메시지","일감","작성자","날짜","변경"]).forEach(h=>th.appendChild(el("th",null,h))); tbl.appendChild(th);
   // 작업 중 변경 고정 행
   const w=d.working; const wip=el("tr","wip");
+  if(hasGraph) wip.appendChild(el("td","g"));
   wip.appendChild(el("td","dim","●"));
   wip.appendChild(el("td",null,"작업 중 변경 ("+w.fileCount+"개 파일)"));
   const wc=el("td"); const link=el("button","btn ghost","# 일감 연결…"); link.style.cssText="font-size:10px;padding:1px 8px;"; link.onclick=()=>post({command:"insertRef"}); wc.appendChild(link); wip.appendChild(wc);
@@ -375,7 +397,8 @@ function renderCommits(d){
 
   for(const c of d.commits){
     const tr=el("tr","row"+(S.selHash===c.hash?" sel":""));
-    tr.appendChild(el("td","dim",c.shortHash)); tr.firstChild.style.fontFamily="monospace";
+    if(hasGraph){ const gtd=el("td","g"); if(c.graph) gtd.innerHTML=graphCell(c.graph,gw); tr.appendChild(gtd); }
+    const htd=el("td","dim",c.shortHash); htd.style.fontFamily="monospace"; tr.appendChild(htd);
     tr.appendChild(el("td",null,c.subject));
     const ic=el("td"); if(c.issueIds.length){ c.issueIds.forEach(id=>{ const ib=el("span","ib","#"+id); ib.onclick=(e)=>{e.stopPropagation();post({command:"open",id});}; ic.appendChild(ib); }); } else ic.className="dim",ic.textContent="—"; tr.appendChild(ic);
     tr.appendChild(el("td",null,c.author));
@@ -404,6 +427,24 @@ function renderCommits(d){
   const aside=el("div","aside wide"); aside.id="commitAside"; aside.appendChild(el("div","dim","커밋을 선택하면 상세 표시")); attachAside(content, aside);
   document.getElementById("foot").innerHTML=""; document.getElementById("foot").appendChild(el("span",null,d.commits.length+"개 커밋"));
   S.last.commits=d; save();
+}
+// 행별 자족 lane SVG: thru=관통 수직선, up=상단→점(중앙) 수렴, down=점→하단 부모 분기, 점=자기 lane. 색=lane%4.
+var GL=["--gl0","--gl1","--gl2","--gl3"];
+function laneColor(l){ return "var("+GL[((l%4)+4)%4]+")"; }
+function graphCell(g,w){
+  var H=30, mid=15, cx=function(l){ return l*14+8; };
+  var s='<svg width="'+w+'" height="'+H+'" viewBox="0 0 '+w+' '+H+'">';
+  (g.thru||[]).forEach(function(t){ s+='<line x1="'+cx(t)+'" y1="0" x2="'+cx(t)+'" y2="'+H+'" stroke="'+laneColor(t)+'" stroke-width="1.5"/>'; });
+  (g.up||[]).forEach(function(i){
+    if(i===g.lane) s+='<line x1="'+cx(i)+'" y1="0" x2="'+cx(g.lane)+'" y2="'+mid+'" stroke="'+laneColor(i)+'" stroke-width="1.5"/>';
+    else s+='<path d="M'+cx(i)+' 0 C'+cx(i)+' '+mid+', '+cx(g.lane)+' 0, '+cx(g.lane)+' '+mid+'" fill="none" stroke="'+laneColor(i)+'" stroke-width="1.5"/>';
+  });
+  (g.down||[]).forEach(function(o){
+    if(o===g.lane) s+='<line x1="'+cx(g.lane)+'" y1="'+mid+'" x2="'+cx(o)+'" y2="'+H+'" stroke="'+laneColor(o)+'" stroke-width="1.5"/>';
+    else s+='<path d="M'+cx(g.lane)+' '+mid+' C'+cx(g.lane)+' '+H+', '+cx(o)+' '+mid+', '+cx(o)+' '+H+'" fill="none" stroke="'+laneColor(o)+'" stroke-width="1.5"/>';
+  });
+  s+='<circle cx="'+cx(g.lane)+'" cy="'+mid+'" r="4" fill="'+laneColor(g.lane)+'"/>';
+  return s+'</svg>';
 }
 function changeCell(a,dn,mod){
   const td=el("td"); const chg=el("span","chg");
@@ -496,6 +537,38 @@ function renderWorkingDetail(m){
   fileList(a,"작업 중 변경",m.files,f=>fileRow(f,()=>post({command:"diffWorkingFile",repoPath:d.repoPath,file:f.path,del:f.del})));
 }
 
+// ---- options ----
+function renderOptions(d){
+  const o=d.options||{};
+  const strip=document.getElementById("strip"); strip.className=""; strip.innerHTML="";
+  const bar=document.getElementById("bar"); bar.className="bar"; bar.innerHTML=""; bar.appendChild(stripDesc());
+  document.getElementById("foot").innerHTML="";
+  const content=document.getElementById("content"); content.innerHTML="";
+  const opt=el("div","opt");
+  opt.appendChild(el("h3",null,"표시"));
+  opt.appendChild(toggleRow("사이드바 상단 '오늘 소요시간' 표시","내 일감 트리 위 스트립 — 끄면 트리만 표시",!!o.showTodayTime,v=>setOpt("sidebar.showTodayTime",v)));
+  opt.appendChild(toggleRow("패널 탭 배지","기한 임박 + 지연 일감 수를 패널 탭에 표시",!!o.showBadge,v=>setOpt("panel.showBadge",v)));
+  opt.appendChild(toggleRow("커밋 뷰: 일감 연결 커밋만 기본 표시","#번호 없는 커밋 숨김 (뷰에서 일시 전환 가능)",!!o.linkedOnly,v=>setOpt("commits.linkedOnly",v)));
+  opt.appendChild(el("h3",null,"검색 기본값"));
+  opt.appendChild(selectRow("기본 담당자",[["me","나"],["all","전체"]],o.defaultAssignee||"me",v=>setOpt("search.defaultAssignee",v)));
+  opt.appendChild(selectRow("기본 상태",[["open","진행 중만"],["all","전체(완료 포함)"]],o.defaultStatus||"open",v=>setOpt("search.defaultStatus",v)));
+  opt.appendChild(selectRow("기본 정렬",[["updated","수정일 ↓"],["due","기한 ↑"],["priority","우선순위 ↓"]],o.defaultSort||"updated",v=>setOpt("search.defaultSort",v)));
+  opt.appendChild(el("div","ohint","설정은 VSCode 설정(redmine.*)에 저장 — settings.json과 양방향 동기화. 변경 즉시 반영."));
+  content.appendChild(opt);
+}
+function setOpt(key,value){ post({command:"setOption",key,value}); }
+function toggleRow(label,desc,on,onToggle){
+  const row=el("div","orow"); const l=el("div","lbl"); l.appendChild(document.createTextNode(label));
+  if(desc) l.appendChild(el("small",null,desc)); row.appendChild(l);
+  const tg=el("div","tg"+(on?" on":"")); tg.onclick=()=>{ const nv=!tg.classList.contains("on"); tg.classList.toggle("on",nv); onToggle(nv); };
+  row.appendChild(tg); return row;
+}
+function selectRow(label,opts,value,onChange){
+  const row=el("div","orow"); row.appendChild(el("div","lbl",label));
+  const sel=el("select"); for(const o of opts){ const op=el("option",null,o[1]); op.value=o[0]; if(o[0]===value)op.selected=true; sel.appendChild(op); }
+  sel.onchange=()=>onChange(sel.value); row.appendChild(sel); return row;
+}
+
 // ---- shared ui ----
 function dd(label,value,opts,onchange){
   const wrap=el("span"); wrap.style.cssText="display:inline-flex;align-items:center;gap:3px;";
@@ -528,11 +601,15 @@ window.addEventListener("message",(e)=>{
   const d=e.data;
   if(d.command==="error"){ document.getElementById("content").innerHTML='<div class="pad dim">오류: '+d.message+'</div>'; return; }
   if(d.command==="refresh"){ S.offset=0; reqLoad(); return; }
+  if(d.command==="switchView"){ if(d.view){ S.view=d.view; S.offset=0; S.selId=null; S.selHash=null; save(); syncRail(); showLoading(); reqLoad(); } return; }
   if(d.command==="issueDetail"){ renderIssueDetail(d.detail); return; }
   if(d.command==="commitDetail"){ renderCommitDetail(d); return; }
   if(d.command==="workingDetail"){ renderWorkingDetail(d); return; }
   if(d.command!=="data") return;
   if(d.view!==S.view) return;
+  applyRailBadge(d.badge);
+  if(FRESH && !S.seeded && d.defaults && seedDefaults(d.defaults)) return; // 시드로 필터 변경 → 재조회 대기(현 데이터 렌더 스킵)
+  if(d.view==="options"){ renderOptions(d); return; } // 옵션은 인증 불필요 → connected 가드 이전
   if(!d.connected){ document.getElementById("strip").innerHTML=""; document.getElementById("bar").innerHTML=""; document.getElementById("foot").innerHTML=""; document.getElementById("content").innerHTML='<div class="pad dim">Redmine 연결 후 이용 (URL·API 키 설정)</div>'; return; }
   if(d.view==="issues"){
     // offset>0 = "더 불러오기" → 이전 페이지에 append (교체 아님). 필터 변경은 모두 offset=0 리셋.

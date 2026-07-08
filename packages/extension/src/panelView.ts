@@ -12,6 +12,7 @@ import {
   gitRemoteWebUrl,
   commitWebUrl,
   type GitRepo,
+  type GitCommit,
 } from "./gitIssues";
 
 import {
@@ -27,6 +28,59 @@ import {
 } from "./panelData";
 import { buildHtml } from "./panelHtml";
 
+// lane 그래프 행: lane=점 컬럼, up=위(자식 lane)→점 수렴선, down=점→아래(부모 lane) 분기선, thru=관통 lane.
+// 클라가 행별 자족 SVG를 그리도록 최소 형태. up/down은 중앙(점)에서 끊기므로 from/to 단일선으로는 표현 불가 → 3필드 분리.
+export interface GraphRow {
+  lane: number;
+  up: number[];
+  down: number[];
+  thru: number[];
+}
+
+// git log --topo-order(자식 먼저) 전제. active[i]=lane i가 다음에 기대하는 커밋 hash. 압축 안 함(lane 인덱스 안정 → 관통선 수직 유지).
+export function assignLanes(commits: GitCommit[]): GraphRow[] {
+  const active: (string | null)[] = [];
+  const rows: GraphRow[] = [];
+  const firstNull = (): number => {
+    const i = active.indexOf(null);
+    return i >= 0 ? i : active.length;
+  };
+  for (const c of commits) {
+    const h = c.hash;
+    const incoming: number[] = [];
+    for (let i = 0; i < active.length; i++) if (active[i] === h) incoming.push(i);
+    let my: number;
+    if (incoming.length) my = incoming[0];
+    else {
+      my = firstNull();
+      active[my] = h; // 신규 lane 선점 → thru 판정에서 제외
+    }
+    const thru: number[] = [];
+    for (let i = 0; i < active.length; i++) if (active[i] !== null && active[i] !== h && i !== my) thru.push(i);
+    const up = incoming.slice();
+    for (const i of incoming) if (i !== my) active[i] = null; // 다른 수렴 lane 회수
+    const down: number[] = [];
+    const P = c.parents;
+    if (!P.length) {
+      active[my] = null; // 루트 → lane 종료
+    } else {
+      active[my] = P[0];
+      down.push(my);
+      for (let k = 1; k < P.length; k++) {
+        const p = P[k];
+        let j = active.indexOf(p); // 이미 이 부모를 기대하는 lane 재사용, 없으면 새 lane
+        if (j < 0) {
+          j = firstNull();
+          active[j] = p;
+        }
+        down.push(j);
+      }
+    }
+    rows.push({ lane: my, up, down, thru });
+  }
+  return rows;
+}
+
 // 단일 웹뷰 앱 — 좌측 레일(일감/소요시간/커밋) 내부 전환, 필터 공유. ↗ pop-out은 동일 앱을 에디터 탭에 재호스팅.
 export class PanelView implements vscode.WebviewViewProvider {
   static readonly viewId = "redminePanel";
@@ -39,6 +93,8 @@ export class PanelView implements vscode.WebviewViewProvider {
   private panel?: vscode.WebviewPanel;
   private gens = new WeakMap<vscode.Webview, number>(); // 웹뷰별 stale 응답 폐기
   private selGens = new WeakMap<vscode.Webview, number>(); // aside 선택(일감/커밋) stale 폐기
+  private booted = new WeakSet<vscode.Webview>(); // 인바운드 메시지 1회 수신 = 스크립트 부팅 완료
+  private pendingView?: string; // reveal→postMessage 레이스: 부팅 전 요청된 뷰 전환을 부팅 시 flush
   private badgeValue = 0;
   private user?: { id: number; name: string };
   private knownUsers = new Map<number, string>();
@@ -87,6 +143,23 @@ export class PanelView implements vscode.WebviewViewProvider {
     void this.updateBadge();
   }
 
+  // 특정 레일 뷰로 전환. 부팅된 웹뷰 있으면 즉시, 없으면 부팅 시 flush(레이스 방지).
+  showView(view: string): void {
+    this.pendingView = view;
+    this.flushView();
+  }
+
+  private flushView(): void {
+    const v = this.pendingView;
+    if (v == null) return;
+    const webs = [this.view?.webview, this.panel?.webview].filter(
+      (w): w is vscode.Webview => !!w && this.booted.has(w),
+    );
+    if (!webs.length) return; // 부팅된 웹뷰 없음 → 첫 인바운드 메시지 때 flush
+    for (const w of webs) void w.postMessage({ command: "switchView", view: v });
+    this.pendingView = undefined;
+  }
+
   resetUsers(): void {
     this.knownUsers.clear();
     this.userColors.clear();
@@ -100,12 +173,12 @@ export class PanelView implements vscode.WebviewViewProvider {
   }
 
   private applyBadge(): void {
-    if (this.view) {
-      this.view.badge =
-        this.badgeValue > 0
-          ? { value: this.badgeValue, tooltip: `기한 임박·지연 ${this.badgeValue}건` }
-          : undefined;
-    }
+    if (!this.view) return;
+    const showBadge = vscode.workspace.getConfiguration("redmine").get<boolean>("panel.showBadge", true);
+    this.view.badge =
+      showBadge && this.badgeValue > 0
+        ? { value: this.badgeValue, tooltip: `기한 임박·지연 ${this.badgeValue}건` }
+        : undefined;
   }
   private setBadge(n: number): void {
     this.badgeValue = n;
@@ -125,6 +198,10 @@ export class PanelView implements vscode.WebviewViewProvider {
   private wire(webview: vscode.Webview): void {
     webview.onDidReceiveMessage(async (msg: Record<string, unknown>) => {
       PanelView.log().appendLine(`[host] recv ${String(msg.command)}${msg.view ? " view=" + String(msg.view) : ""}`);
+      if (!this.booted.has(webview)) {
+        this.booted.add(webview); // 첫 메시지 = 부팅 완료 → 대기 중 뷰 전환 반영
+        this.flushView();
+      }
       try {
         switch (msg.command) {
           case "jsError":
@@ -198,6 +275,12 @@ export class PanelView implements vscode.WebviewViewProvider {
             await vscode.env.clipboard.writeText(String(msg.text));
             void vscode.window.setStatusBarMessage("복사됨", 1500);
             break;
+          case "setOption":
+            // 옵션 뷰 토글/셀렉트 → 설정 저장(Global). showBadge는 onDidChangeConfiguration이 refresh 1회 재발화(무한루프 아님).
+            await vscode.workspace
+              .getConfiguration("redmine")
+              .update(String(msg.key), msg.value, vscode.ConfigurationTarget.Global);
+            break;
         }
       } catch (err) {
         PanelView.log().appendLine(`[host] handler error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
@@ -217,10 +300,30 @@ export class PanelView implements vscode.WebviewViewProvider {
     const gen = (this.gens.get(webview) ?? 0) + 1;
     this.gens.set(webview, gen);
     const alive = (): boolean => this.gens.get(webview) === gen;
+    const cfg = vscode.workspace.getConfiguration("redmine");
+    const showBadge = cfg.get<boolean>("panel.showBadge", true);
+    // 필터 기본값(신규 웹뷰 최초 로드 시드용) — 모든 data 메시지에 동봉, 클라가 미시드일 때만 적용
+    const defaults = {
+      assignee: cfg.get<string>("search.defaultAssignee", "me"),
+      status: cfg.get<string>("search.defaultStatus", "open"),
+      sort: cfg.get<string>("search.defaultSort", "updated"),
+      linkedOnly: cfg.get<boolean>("commits.linkedOnly", false),
+    };
     const send = (m: object): void => {
       PanelView.log().appendLine(`[host] send data view=${view} alive=${alive()}`);
-      if (alive()) void webview.postMessage({ command: "data", view, ...m });
+      if (alive())
+        void webview.postMessage({
+          command: "data",
+          view,
+          badge: showBadge ? this.badgeValue : undefined,
+          defaults,
+          ...m,
+        });
     };
+    if (view === "options") {
+      this.loadOptions(send); // 인증 불필요 — getClient 앞에서 처리
+      return;
+    }
     if (view === "commits") {
       await this.loadCommits(send, filters);
       return;
@@ -463,9 +566,10 @@ export class PanelView implements vscode.WebviewViewProvider {
     const idx = Math.min(Math.max(0, filters.repo), repos.length - 1);
     const repo = repos[idx];
     const { current, branches } = await gitBranches(repo.path);
-    const branch = filters.branch && branches.includes(filters.branch) ? filters.branch : current;
+    const isAll = filters.branch === "--all";
+    const branch = isAll ? "--all" : filters.branch && branches.includes(filters.branch) ? filters.branch : current;
     const [commits, working, remoteUrl] = await Promise.all([
-      gitLog(repo.path, { branch, limit: 100 }),
+      gitLog(repo.path, isAll ? { all: true, limit: 100 } : { branch, limit: 100 }),
       gitWorkingChanges(repo.path),
       gitRemoteWebUrl(repo.path),
     ]);
@@ -474,6 +578,9 @@ export class PanelView implements vscode.WebviewViewProvider {
 
     const q = filters.search.trim();
     const num = q.match(/^#?(\d+)$/)?.[1];
+    // linkedOnly/검색 활성 → 부모 체인 끊김 → 그래프 생략(전체 목록일 때만 lane 계산)
+    const graphable = !filters.linkedOnly && !q;
+    const graph = graphable ? assignLanes(commits) : undefined;
     const filtered = commits.filter((c) => {
       if (filters.linkedOnly && !c.issueIds.length) return false;
       if (!q) return true;
@@ -491,7 +598,8 @@ export class PanelView implements vscode.WebviewViewProvider {
       working,
       remoteUrl,
       hasRevision,
-      commits: filtered.map((c) => ({
+      // graphable일 때 filtered===commits(필터 통과 전량) → graph[i] 인덱스 정합
+      commits: filtered.map((c, i) => ({
         hash: c.hash,
         shortHash: c.shortHash,
         subject: c.subject,
@@ -503,8 +611,24 @@ export class PanelView implements vscode.WebviewViewProvider {
         added: c.added,
         deleted: c.deleted,
         files: c.files,
+        graph: graph ? graph[i] : undefined,
       })),
       linkedOnly: filters.linkedOnly,
+    });
+  }
+
+  private loadOptions(send: (m: object) => void): void {
+    const cfg = vscode.workspace.getConfiguration("redmine");
+    send({
+      connected: true,
+      options: {
+        showTodayTime: cfg.get<boolean>("sidebar.showTodayTime", true),
+        showBadge: cfg.get<boolean>("panel.showBadge", true),
+        linkedOnly: cfg.get<boolean>("commits.linkedOnly", false),
+        defaultAssignee: cfg.get<string>("search.defaultAssignee", "me"),
+        defaultStatus: cfg.get<string>("search.defaultStatus", "open"),
+        defaultSort: cfg.get<string>("search.defaultSort", "updated"),
+      },
     });
   }
 

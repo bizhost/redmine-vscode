@@ -7,14 +7,20 @@ export function buildHtml(): string {
 <head>
 <meta charset="UTF-8">
 <style>
-  :root{--nl:#4fa3ff;--pr:#e2b93d;--dn:#3fb950;--late:#ff8f8f;}
+  :root{--nl:#4fa3ff;--pr:#e2b93d;--dn:#3fb950;--late:#ff8f8f;
+    --gl0:var(--vscode-charts-blue,#4fa3ff);--gl1:var(--vscode-charts-green,#3fb950);--gl2:var(--vscode-charts-yellow,#e2b93d);--gl3:var(--vscode-charts-purple,#b180f0);}
   *{box-sizing:border-box;}
   body{margin:0;padding:0;color:var(--vscode-foreground);font-family:var(--vscode-font-family);font-size:13px;}
   .wrap{display:flex;height:100vh;}
-  .rail{width:38px;flex:none;border-right:1px solid var(--vscode-panel-border,var(--vscode-widget-border));display:flex;flex-direction:column;align-items:center;padding-top:8px;gap:4px;}
-  .rail span{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;color:var(--vscode-descriptionForeground);font-size:15px;}
-  .rail span.on{background:var(--vscode-button-background);color:var(--vscode-button-foreground);}
-  .rail span:hover{background:var(--vscode-list-hoverBackground);}
+  .rail{width:44px;flex:none;border-right:1px solid var(--vscode-panel-border,var(--vscode-widget-border));display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:2px;}
+  .rail span{position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:5px;cursor:pointer;color:var(--vscode-descriptionForeground);}
+  .rail span:hover{background:var(--vscode-list-hoverBackground);color:var(--vscode-foreground);}
+  .rail span.on{background:var(--vscode-list-hoverBackground);color:var(--vscode-foreground);}
+  .rail span.on::before{content:"";position:absolute;left:-6px;top:6px;bottom:6px;width:2px;background:var(--vscode-foreground);border-radius:1px;}
+  .rail svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round;}
+  .rail hr{width:24px;border:none;border-top:1px solid var(--vscode-panel-border,var(--vscode-widget-border));margin:6px 0;}
+  .rail .badge{position:absolute;top:2px;right:2px;min-width:14px;height:14px;border-radius:7px;background:var(--vscode-activityBarBadge-background);color:var(--vscode-activityBarBadge-foreground);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px;margin:0;line-height:1;}
+  .rail .badge:empty{display:none;}
   .main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
   .bar{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--vscode-panel-border,var(--vscode-widget-border));flex-wrap:wrap;}
   .strip{background:var(--vscode-editorWidget-background,var(--vscode-input-background));}
@@ -127,14 +133,33 @@ export function buildHtml(): string {
   .pad{padding:12px;}
   .num{text-align:right;}
   label.cb{font-size:11px;color:var(--vscode-descriptionForeground);display:flex;align-items:center;gap:3px;}
+  /* 옵션 뷰 */
+  .opt{flex:1;overflow:auto;padding:18px 26px;max-width:640px;}
+  .opt h3{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--vscode-descriptionForeground);margin:22px 0 10px;border-bottom:1px solid var(--vscode-panel-border,var(--vscode-widget-border));padding-bottom:6px;font-weight:600;}
+  .opt h3:first-child{margin-top:0;}
+  .orow{display:flex;align-items:center;gap:12px;padding:7px 0;}
+  .orow .lbl{flex:1;}
+  .orow .lbl small{display:block;color:var(--vscode-descriptionForeground);font-size:11px;}
+  .tg{width:34px;height:18px;border-radius:9px;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,var(--vscode-dropdown-border));position:relative;flex:none;cursor:pointer;}
+  .tg::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--vscode-descriptionForeground);transition:left .1s;}
+  .tg.on{background:var(--vscode-button-background);border-color:var(--vscode-button-background);}
+  .tg.on::after{left:18px;background:var(--vscode-button-foreground);}
+  .ohint{color:var(--vscode-descriptionForeground);font-size:11px;margin-top:20px;border-top:1px dashed var(--vscode-panel-border,var(--vscode-widget-border));padding-top:10px;}
+  /* 커밋 lane 그래프 */
+  table.graph tr{height:30px;}
+  td.g{padding:0;vertical-align:top;}
+  td.g svg{display:block;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="rail">
-    <span data-view="issues" title="일감">📋</span>
-    <span data-view="time" title="소요시간">⏱</span>
-    <span data-view="commits" title="커밋">🔀</span>
+    <span data-view="issues" title="일감"><svg viewBox="0 0 18 18"><circle cx="3" cy="4.5" r=".9" fill="currentColor" stroke="none"/><path d="M6.5 4.5H16"/><circle cx="3" cy="9" r=".9" fill="currentColor" stroke="none"/><path d="M6.5 9H16"/><circle cx="3" cy="13.5" r=".9" fill="currentColor" stroke="none"/><path d="M6.5 13.5H16"/></svg><b class="badge" id="railBadge"></b></span>
+    <span data-view="commits" title="커밋"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="3"/><path d="M1.5 9H6M12 9h4.5"/></svg></span>
+    <span data-view="time" title="소요시간"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6.8"/><path d="M9 5.5V9l2.6 1.8"/></svg></span>
+    <div class="spacer"></div>
+    <hr>
+    <span data-view="options" title="옵션"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="2.4"/><path d="M9 1.8v2.4M9 13.8v2.4M1.8 9h2.4M13.8 9h2.4M3.9 3.9l1.7 1.7M12.4 12.4l1.7 1.7M14.1 3.9l-1.7 1.7M5.6 12.4l-1.7 1.7"/></svg></span>
   </div>
   <div class="main">
     <div id="strip"></div>

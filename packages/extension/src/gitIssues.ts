@@ -89,6 +89,7 @@ export interface GitCommit {
   body: string;
   author: string;
   dateIso: string;
+  parents: string[]; // 부모 커밋 full hash (lane 그래프용)
   issueIds: number[];
   added: number;
   deleted: number;
@@ -110,18 +111,21 @@ export function sumNumstat(lines: string[]): { added: number; deleted: number } 
 }
 
 // 단일 git log 호출: 레코드=%x1e, 필드=%x1f 구분 + --numstat 꼬리에서 +/- 합산
+// %H/%P = full hash (lane 그래프 부모↔해시 매칭에 축약형 금지). --topo-order = 자식이 부모보다 먼저 방출(lane 알고리즘 전제).
 export async function gitLog(
   cwd: string,
-  opts: { branch?: string; limit?: number } = {},
+  opts: { branch?: string; limit?: number; all?: boolean } = {},
 ): Promise<GitCommit[]> {
   const args = [
     "log",
+    "--topo-order",
     "-n",
     String(opts.limit ?? 100),
     "--numstat",
-    "--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%b",
+    "--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%P%x1f%b",
   ];
-  if (opts.branch) args.push(opts.branch);
+  if (opts.all) args.push("--all");
+  else if (opts.branch) args.push(opts.branch);
   const { stdout } = await execFileAsync("git", args, { cwd, maxBuffer: MAXBUF }).catch(() => ({
     stdout: "",
   }));
@@ -129,13 +133,14 @@ export async function gitLog(
   for (const rec of stdout.split("\x1e")) {
     if (!rec.trim()) continue;
     const parts = rec.split("\x1f");
-    if (parts.length < 5) continue;
+    if (parts.length < 6) continue;
     const hash = parts[0].trim();
     const author = parts[1].trim();
     const dateIso = parts[2].trim();
     const subject = parts[3].trim();
-    // parts[4] = body + "\n\n<numstat 행들>". 꼬리의 연속 numstat 블록만 stat, 앞은 body.
-    const lines = (parts[4] ?? "").split("\n");
+    const parents = (parts[4] ?? "").trim().split(/\s+/).filter(Boolean);
+    // parts[5] = body + "\n\n<numstat 행들>". 꼬리의 연속 numstat 블록만 stat, 앞은 body.
+    const lines = (parts[5] ?? "").split("\n");
     let end = lines.length;
     while (end > 0 && lines[end - 1].trim() === "") end--;
     let start = end;
@@ -149,6 +154,7 @@ export async function gitLog(
       body,
       author,
       dateIso,
+      parents,
       issueIds: parseIssueIds(`${subject}\n${body}`),
       added,
       deleted,

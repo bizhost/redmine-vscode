@@ -101,6 +101,8 @@ export function activate(context: vscode.ExtensionContext): void {
         refreshAll();
       }
       if (e.affectsConfiguration("redmine.views.myIssues.groupBy")) myIssues.rerender();
+      if (e.affectsConfiguration("redmine.sidebar.showTodayTime")) myIssues.rerender();
+      if (e.affectsConfiguration("redmine.panel.showBadge")) panel.refresh();
     }),
 
     ...registerIssueCommands(deps),

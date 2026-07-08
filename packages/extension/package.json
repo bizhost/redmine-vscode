@@ -32,15 +32,17 @@
           "title": "Redmine",
           "icon": "$(checklist)"
         }
+      ],
+      "panel": [
+        {
+          "id": "redminePanelContainer",
+          "title": "Redmine",
+          "icon": "$(checklist)"
+        }
       ]
     },
     "views": {
       "redmine": [
-        {
-          "id": "redmineHome",
-          "name": "Home",
-          "type": "webview"
-        },
         {
           "id": "redmineMyIssues",
           "name": "내 일감"
@@ -48,10 +50,12 @@
         {
           "id": "redmineProjects",
           "name": "프로젝트"
-        },
+        }
+      ],
+      "redminePanelContainer": [
         {
-          "id": "redmineTimeLog",
-          "name": "소요시간",
+          "id": "redminePanel",
+          "name": "워크벤치",
           "type": "webview"
         }
       ]
@@ -162,6 +166,25 @@
       {
         "command": "redmine.projects.more",
         "title": "Redmine: 더 보기"
+      },
+      {
+        "command": "redmine.openPanel",
+        "title": "Redmine: 패널을 에디터 탭으로 열기",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "redmine.refreshPanel",
+        "title": "Redmine: 패널 새로고침",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "redmine.insertIssueRef",
+        "title": "Redmine: 커밋에 일감 #번호 삽입",
+        "icon": "$(references)"
+      },
+      {
+        "command": "redmine.diffCommitFile",
+        "title": "Redmine: 커밋 파일 diff"
       }
     ],
     "menus": {
@@ -197,8 +220,19 @@
           "group": "navigation@2"
         },
         {
-          "command": "redmine.refresh",
-          "when": "view == redmineTimeLog",
+          "command": "redmine.refreshPanel",
+          "when": "view == redminePanel",
+          "group": "navigation@1"
+        },
+        {
+          "command": "redmine.openPanel",
+          "when": "view == redminePanel",
+          "group": "navigation@2"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "redmine.insertIssueRef",
           "group": "navigation"
         }
       ],
@@ -292,6 +326,10 @@
         },
         {
           "command": "redmine.projects.more",
+          "when": "false"
+        },
+        {
+          "command": "redmine.diffCommitFile",
           "when": "false"
         }
       ]
